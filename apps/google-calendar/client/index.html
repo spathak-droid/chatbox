@@ -1,0 +1,501 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Google Calendar Study Planner</title>
+  <style>
+    *, *::before, *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+      background: #f8f9fa;
+      color: #1a1a2e;
+      padding: 16px;
+      min-height: 100px;
+    }
+
+    .container {
+      max-width: 520px;
+      margin: 0 auto;
+    }
+
+    .waiting {
+      text-align: center;
+      padding: 40px 16px;
+      color: #6c757d;
+      font-size: 16px;
+    }
+
+    .waiting .spinner {
+      display: inline-block;
+      width: 24px;
+      height: 24px;
+      border: 3px solid #dee2e6;
+      border-top-color: #4285f4;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      margin-bottom: 12px;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 16px;
+      padding-bottom: 12px;
+      border-bottom: 2px solid #e9ecef;
+    }
+
+    .header h1 {
+      font-size: 18px;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .header .calendar-icon {
+      font-size: 22px;
+    }
+
+    .status-badge {
+      padding: 4px 12px;
+      border-radius: 12px;
+      font-size: 12px;
+      font-weight: 600;
+    }
+
+    .status-badge.connected {
+      background: #d4edda;
+      color: #155724;
+    }
+
+    .status-badge.disconnected {
+      background: #f8d7da;
+      color: #721c24;
+    }
+
+    .connect-card {
+      background: white;
+      border-radius: 16px;
+      padding: 32px 24px;
+      text-align: center;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+      margin-bottom: 20px;
+    }
+
+    .connect-card p {
+      color: #6c757d;
+      margin-bottom: 20px;
+      font-size: 14px;
+      line-height: 1.5;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 12px 24px;
+      font-size: 15px;
+      font-weight: 600;
+      border: none;
+      border-radius: 12px;
+      cursor: pointer;
+      transition: background 0.2s, transform 0.1s;
+    }
+
+    .btn:active {
+      transform: scale(0.97);
+    }
+
+    .btn-google {
+      background: #4285f4;
+      color: white;
+    }
+
+    .btn-google:hover {
+      background: #3367d6;
+    }
+
+    .btn-refresh {
+      background: #e9ecef;
+      color: #495057;
+      padding: 8px 16px;
+      font-size: 13px;
+    }
+
+    .btn-refresh:hover {
+      background: #dee2e6;
+    }
+
+    .events-section {
+      margin-bottom: 20px;
+    }
+
+    .section-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 12px;
+    }
+
+    .section-header h2 {
+      font-size: 15px;
+      font-weight: 600;
+      color: #495057;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .event-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .event-item {
+      background: white;
+      border-radius: 12px;
+      padding: 14px 16px;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.04);
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+    }
+
+    .event-time {
+      flex-shrink: 0;
+      background: #f0f4ff;
+      color: #4285f4;
+      padding: 4px 8px;
+      border-radius: 8px;
+      font-size: 12px;
+      font-weight: 600;
+      min-width: 60px;
+      text-align: center;
+    }
+
+    .event-details {
+      flex: 1;
+    }
+
+    .event-details .event-name {
+      font-weight: 600;
+      font-size: 14px;
+      margin-bottom: 2px;
+    }
+
+    .event-details .event-date {
+      font-size: 12px;
+      color: #6c757d;
+    }
+
+    .study-blocks-section {
+      margin-bottom: 20px;
+    }
+
+    .study-block-item {
+      background: white;
+      border-left: 4px solid #4285f4;
+      border-radius: 0 12px 12px 0;
+      padding: 14px 16px;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.04);
+      margin-bottom: 8px;
+    }
+
+    .study-block-item .block-subject {
+      font-weight: 600;
+      font-size: 14px;
+      color: #1a1a2e;
+      margin-bottom: 4px;
+    }
+
+    .study-block-item .block-time {
+      font-size: 12px;
+      color: #6c757d;
+    }
+
+    .empty-state {
+      text-align: center;
+      padding: 24px 16px;
+      color: #adb5bd;
+      font-size: 14px;
+    }
+
+    .error-msg {
+      background: #f8d7da;
+      color: #721c24;
+      padding: 12px 16px;
+      border-radius: 12px;
+      font-size: 14px;
+      margin-bottom: 16px;
+      text-align: center;
+    }
+
+    .hidden {
+      display: none;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <!-- Waiting state -->
+    <div id="waiting" class="waiting">
+      <div class="spinner"></div>
+      <div>Loading study planner...</div>
+    </div>
+
+    <!-- Not connected state -->
+    <div id="connectView" class="hidden">
+      <div class="header">
+        <h1><span class="calendar-icon">&#128197;</span> Study Planner</h1>
+        <span class="status-badge disconnected">Not Connected</span>
+      </div>
+      <div class="connect-card">
+        <p>Connect your Google Calendar to view events, create study blocks, and plan your study schedule.</p>
+        <button class="btn btn-google" onclick="requestConnect()">
+          <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><path d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844a4.14 4.14 0 0 1-1.796 2.716v2.259h2.908c1.702-1.567 2.684-3.875 2.684-6.615Z" fill="#4285F4"/><path d="M9 18c2.43 0 4.467-.806 5.956-2.184l-2.908-2.259c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332A8.997 8.997 0 0 0 9 18Z" fill="#34A853"/><path d="M3.964 10.706A5.41 5.41 0 0 1 3.682 9c0-.593.102-1.17.282-1.706V4.962H.957A8.997 8.997 0 0 0 0 9c0 1.452.348 2.827.957 4.038l3.007-2.332Z" fill="#FBBC05"/><path d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 0 0 .957 4.962L3.964 7.294C4.672 5.166 6.656 3.58 9 3.58Z" fill="#EA4335"/></svg>
+          Connect with Google
+        </button>
+      </div>
+    </div>
+
+    <!-- Connected state -->
+    <div id="mainView" class="hidden">
+      <div class="header">
+        <h1><span class="calendar-icon">&#128197;</span> Study Planner</h1>
+        <span class="status-badge connected">Connected</span>
+      </div>
+
+      <div id="errorMsg" class="error-msg hidden"></div>
+
+      <!-- Upcoming Events -->
+      <div class="events-section">
+        <div class="section-header">
+          <h2>Upcoming Events</h2>
+          <button class="btn btn-refresh" onclick="requestRefreshEvents()">Refresh</button>
+        </div>
+        <div id="eventList" class="event-list">
+          <div class="empty-state">Ask the assistant to list your events.</div>
+        </div>
+      </div>
+
+      <!-- Study Blocks -->
+      <div class="study-blocks-section">
+        <div class="section-header">
+          <h2>Study Blocks</h2>
+        </div>
+        <div id="studyBlockList" class="event-list">
+          <div class="empty-state">No study blocks created yet. Ask the assistant to plan your study schedule!</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // State
+    let state = {}
+    let sessionId = null
+
+    // Elements
+    const waitingEl = document.getElementById('waiting')
+    const connectView = document.getElementById('connectView')
+    const mainView = document.getElementById('mainView')
+    const eventListEl = document.getElementById('eventList')
+    const studyBlockListEl = document.getElementById('studyBlockList')
+    const errorMsgEl = document.getElementById('errorMsg')
+
+    // postMessage bridge
+    function sendToHost(message) {
+      window.parent.postMessage(message, '*')
+    }
+
+    function sendResize() {
+      const height = document.body.scrollHeight + 32
+      sendToHost({ type: 'app.resize', height })
+    }
+
+    window.addEventListener('message', (event) => {
+      const msg = event.data
+      if (!msg || !msg.type) return
+
+      switch (msg.type) {
+        case 'host.init':
+          sessionId = msg.appSessionId
+          if (msg.state) {
+            state = msg.state
+            render()
+          }
+          break
+
+        case 'host.state_patch':
+          state = { ...state, ...msg.patch }
+          render()
+          break
+
+        case 'host.tool_result':
+          handleToolResult(msg.toolName, msg.result)
+          break
+      }
+    })
+
+    function handleToolResult(toolName, result) {
+      if (result.status === 'error') {
+        showError(result.error || 'An error occurred')
+        return
+      }
+
+      if (result.data) {
+        state = { ...state, ...result.data }
+      }
+
+      switch (toolName) {
+        case 'calendar_check_connection':
+          render()
+          break
+
+        case 'calendar_start_connect':
+          if (result.data && result.data.authUrl) {
+            window.open(result.data.authUrl, '_blank', 'width=500,height=600')
+          }
+          break
+
+        case 'calendar_list_events':
+          renderEvents()
+          break
+
+        case 'calendar_create_study_block':
+        case 'calendar_create_study_plan':
+          renderStudyBlocks()
+          break
+      }
+
+      sendResize()
+    }
+
+    function render() {
+      waitingEl.classList.add('hidden')
+      errorMsgEl.classList.add('hidden')
+
+      if (state.connected) {
+        connectView.classList.add('hidden')
+        mainView.classList.remove('hidden')
+        renderEvents()
+        renderStudyBlocks()
+      } else {
+        connectView.classList.remove('hidden')
+        mainView.classList.add('hidden')
+      }
+
+      sendResize()
+    }
+
+    function renderEvents() {
+      const events = state.events || []
+      if (events.length === 0) {
+        eventListEl.innerHTML = '<div class="empty-state">Ask the assistant to list your events.</div>'
+      } else {
+        eventListEl.innerHTML = events.map((e) => {
+          const start = e.start.dateTime || e.start.date || ''
+          const time = formatTime(start)
+          const date = formatDate(start)
+          return `
+            <div class="event-item">
+              <div class="event-time">${time}</div>
+              <div class="event-details">
+                <div class="event-name">${escapeHtml(e.summary || 'Untitled')}</div>
+                <div class="event-date">${date}</div>
+              </div>
+            </div>
+          `
+        }).join('')
+      }
+      sendResize()
+    }
+
+    function renderStudyBlocks() {
+      const blocks = state.studyBlocks || []
+      if (blocks.length === 0) {
+        studyBlockListEl.innerHTML = '<div class="empty-state">No study blocks created yet. Ask the assistant to plan your study schedule!</div>'
+      } else {
+        studyBlockListEl.innerHTML = blocks.map((b) => {
+          const start = b.start.dateTime || b.start.date || ''
+          const end = b.end.dateTime || b.end.date || ''
+          return `
+            <div class="study-block-item">
+              <div class="block-subject">${escapeHtml(b.summary || 'Study Block')}</div>
+              <div class="block-time">${formatDate(start)} ${formatTime(start)} - ${formatTime(end)}</div>
+            </div>
+          `
+        }).join('')
+      }
+      sendResize()
+    }
+
+    function requestConnect() {
+      sendToHost({
+        type: 'app.tool_request',
+        toolName: 'calendar_start_connect',
+        args: {},
+      })
+    }
+
+    function requestRefreshEvents() {
+      sendToHost({
+        type: 'app.tool_request',
+        toolName: 'calendar_list_events',
+        args: { maxResults: 10 },
+      })
+    }
+
+    function showError(text) {
+      errorMsgEl.textContent = text
+      errorMsgEl.classList.remove('hidden')
+      sendResize()
+      setTimeout(() => {
+        errorMsgEl.classList.add('hidden')
+        sendResize()
+      }, 5000)
+    }
+
+    function formatTime(isoString) {
+      if (!isoString) return ''
+      try {
+        const d = new Date(isoString)
+        return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      } catch {
+        return ''
+      }
+    }
+
+    function formatDate(isoString) {
+      if (!isoString) return ''
+      try {
+        const d = new Date(isoString)
+        return d.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })
+      } catch {
+        return ''
+      }
+    }
+
+    function escapeHtml(text) {
+      const div = document.createElement('div')
+      div.textContent = text
+      return div.innerHTML
+    }
+
+    // Init: send ready
+    sendToHost({ type: 'app.ready', appId: 'google-calendar' })
+    sendResize()
+  </script>
+</body>
+</html>
