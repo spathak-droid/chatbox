@@ -1,0 +1,375 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Chess</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: #1a1a2e;
+    color: #e0e0e0;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 12px;
+    min-height: 100vh;
+  }
+
+  #status {
+    font-size: 16px;
+    font-weight: 600;
+    margin-bottom: 8px;
+    text-align: center;
+    min-height: 24px;
+  }
+
+  #status.error {
+    color: #ff6b6b;
+  }
+
+  #board {
+    display: grid;
+    grid-template-columns: repeat(8, 1fr);
+    width: min(90vw, 400px);
+    height: min(90vw, 400px);
+    border: 2px solid #444;
+    border-radius: 4px;
+    overflow: hidden;
+  }
+
+  .square {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: min(10vw, 42px);
+    cursor: pointer;
+    user-select: none;
+    position: relative;
+  }
+
+  .square.light { background: #f0d9b5; }
+  .square.dark { background: #b58863; }
+  .square.selected { outline: 3px solid #ffd700; outline-offset: -3px; z-index: 1; }
+  .square.last-move { background: rgba(255, 255, 0, 0.3); }
+  .square.legal-target::after {
+    content: '';
+    position: absolute;
+    width: 30%;
+    height: 30%;
+    border-radius: 50%;
+    background: rgba(0, 0, 0, 0.2);
+  }
+  .square.legal-capture::after {
+    content: '';
+    position: absolute;
+    width: 90%;
+    height: 90%;
+    border-radius: 50%;
+    border: 4px solid rgba(0, 0, 0, 0.2);
+    background: transparent;
+  }
+
+  #moves-panel {
+    margin-top: 10px;
+    width: min(90vw, 400px);
+    max-height: 120px;
+    overflow-y: auto;
+    font-size: 13px;
+    color: #aaa;
+    line-height: 1.6;
+    text-align: center;
+    word-wrap: break-word;
+  }
+
+  #moves-panel span {
+    margin: 0 2px;
+  }
+
+  #moves-panel .move-num {
+    color: #666;
+  }
+</style>
+</head>
+<body>
+<div id="status">Waiting for game...</div>
+<div id="board"></div>
+<div id="moves-panel"></div>
+
+<script>
+// ============ STATE ============
+let gameState = null   // { fen, moves, playerColor, gameOver, result }
+let selected = null    // { row, col, piece, square }
+let lastMoveFrom = null
+let lastMoveTo = null
+let errorTimeout = null
+
+// ============ PIECE MAP ============
+const UNICODE_PIECES = {
+  K: '\u2654', Q: '\u2655', R: '\u2656', B: '\u2657', N: '\u2658', P: '\u2659',
+  k: '\u265A', q: '\u265B', r: '\u265C', b: '\u265D', n: '\u265E', p: '\u265F',
+}
+
+// ============ FEN PARSING ============
+function parseFen(fen) {
+  const rows = fen.split(' ')[0].split('/')
+  const board = []
+  for (const row of rows) {
+    const boardRow = []
+    for (const ch of row) {
+      if (ch >= '1' && ch <= '8') {
+        for (let i = 0; i < parseInt(ch); i++) boardRow.push(null)
+      } else {
+        boardRow.push(ch)
+      }
+    }
+    board.push(boardRow)
+  }
+  return board
+}
+
+function getTurn(fen) {
+  return fen.split(' ')[1] || 'w'
+}
+
+// ============ SQUARE NOTATION ============
+function toAlgebraic(row, col, flipped) {
+  const r = flipped ? row : 7 - row
+  const c = flipped ? 7 - col : col
+  return String.fromCharCode(97 + c) + (r + 1)
+}
+
+function isOwnPiece(piece, playerColor) {
+  if (!piece) return false
+  if (playerColor === 'white') return piece === piece.toUpperCase()
+  return piece === piece.toLowerCase()
+}
+
+function isPlayerTurn(fen, playerColor) {
+  const turn = getTurn(fen)
+  return (turn === 'w' && playerColor === 'white') || (turn === 'b' && playerColor === 'black')
+}
+
+// ============ RENDERING ============
+function render() {
+  const boardEl = document.getElementById('board')
+  const statusEl = document.getElementById('status')
+  const movesEl = document.getElementById('moves-panel')
+
+  if (!gameState) {
+    boardEl.innerHTML = ''
+    statusEl.textContent = 'Waiting for game...'
+    movesEl.innerHTML = ''
+    return
+  }
+
+  const { fen, moves, playerColor, gameOver, result } = gameState
+  const board = parseFen(fen)
+  const flipped = playerColor === 'black'
+  const myTurn = isPlayerTurn(fen, playerColor)
+
+  // Status
+  if (gameOver) {
+    statusEl.textContent = `Game Over: ${result || 'ended'}`
+    statusEl.className = ''
+  } else if (myTurn) {
+    statusEl.textContent = 'Your turn'
+    statusEl.className = ''
+  } else {
+    statusEl.textContent = "Opponent's turn"
+    statusEl.className = ''
+  }
+
+  // Board
+  boardEl.innerHTML = ''
+  for (let displayRow = 0; displayRow < 8; displayRow++) {
+    for (let displayCol = 0; displayCol < 8; displayCol++) {
+      const row = flipped ? 7 - displayRow : displayRow
+      const col = flipped ? 7 - displayCol : displayCol
+      const piece = board[row][col]
+      const sq = toAlgebraic(displayRow, displayCol, flipped)
+      const isLight = (displayRow + displayCol) % 2 === 0
+
+      const el = document.createElement('div')
+      el.className = `square ${isLight ? 'light' : 'dark'}`
+      el.dataset.row = String(displayRow)
+      el.dataset.col = String(displayCol)
+      el.dataset.square = sq
+
+      // Last move highlight
+      if (sq === lastMoveFrom || sq === lastMoveTo) {
+        el.classList.add('last-move')
+      }
+
+      // Selected highlight
+      if (selected && selected.square === sq) {
+        el.classList.add('selected')
+      }
+
+      // Piece
+      if (piece) {
+        el.textContent = UNICODE_PIECES[piece] || ''
+      }
+
+      el.addEventListener('click', () => onSquareClick(displayRow, displayCol, piece, sq))
+      boardEl.appendChild(el)
+    }
+  }
+
+  // Move history
+  movesEl.innerHTML = ''
+  for (let i = 0; i < moves.length; i += 2) {
+    const num = Math.floor(i / 2) + 1
+    const numSpan = document.createElement('span')
+    numSpan.className = 'move-num'
+    numSpan.textContent = `${num}.`
+    movesEl.appendChild(numSpan)
+
+    const wSpan = document.createElement('span')
+    wSpan.textContent = moves[i]
+    movesEl.appendChild(wSpan)
+
+    if (moves[i + 1]) {
+      const bSpan = document.createElement('span')
+      bSpan.textContent = moves[i + 1]
+      movesEl.appendChild(bSpan)
+    }
+  }
+  movesEl.scrollTop = movesEl.scrollHeight
+
+  sendResize()
+}
+
+// ============ INTERACTION ============
+function onSquareClick(displayRow, displayCol, piece, sq) {
+  if (!gameState || gameState.gameOver) return
+  if (!isPlayerTurn(gameState.fen, gameState.playerColor)) return
+
+  if (selected) {
+    if (selected.square === sq) {
+      // Deselect
+      selected = null
+      render()
+      return
+    }
+
+    if (piece && isOwnPiece(piece, gameState.playerColor)) {
+      // Select different own piece
+      selected = { row: displayRow, col: displayCol, piece, square: sq }
+      render()
+      return
+    }
+
+    // Attempt move in UCI format
+    const uci = selected.square + sq
+    sendMove(uci)
+    selected = null
+    return
+  }
+
+  // Select own piece
+  if (piece && isOwnPiece(piece, gameState.playerColor)) {
+    selected = { row: displayRow, col: displayCol, piece, square: sq }
+    render()
+  }
+}
+
+function sendMove(uci) {
+  window.parent.postMessage({
+    type: 'app.tool_request',
+    tool: 'chess_submit_move',
+    args: { move: uci },
+  }, '*')
+}
+
+// ============ ERROR DISPLAY ============
+function showError(msg) {
+  const statusEl = document.getElementById('status')
+  statusEl.textContent = msg
+  statusEl.className = 'error'
+  if (errorTimeout) clearTimeout(errorTimeout)
+  errorTimeout = setTimeout(() => {
+    if (gameState) render()
+  }, 3000)
+}
+
+// ============ POSTMESSAGE BRIDGE ============
+function sendResize() {
+  const height = document.body.scrollHeight
+  window.parent.postMessage({ type: 'app.resize', height }, '*')
+}
+
+window.addEventListener('message', (event) => {
+  const msg = event.data
+  if (!msg || !msg.type) return
+
+  switch (msg.type) {
+    case 'host.init': {
+      // Initial state from host
+      const state = msg.state?.chess
+      if (state) {
+        gameState = state
+        render()
+      }
+      break
+    }
+
+    case 'host.state_patch': {
+      // State update
+      const patch = msg.patch || msg.state_patch
+      if (patch?.chess !== undefined) {
+        gameState = patch.chess
+        selected = null
+        render()
+      }
+      break
+    }
+
+    case 'host.tool_result': {
+      const { data, error, state_patch } = msg
+
+      if (error) {
+        showError(error)
+        return
+      }
+
+      if (state_patch?.chess !== undefined) {
+        gameState = state_patch.chess
+      } else if (data) {
+        // Update from data if no state_patch
+        if (data.fen && gameState) {
+          gameState = {
+            ...gameState,
+            fen: data.fen,
+            moves: data.moves || gameState.moves,
+            gameOver: data.gameOver || false,
+            result: data.result,
+          }
+        }
+      }
+
+      // Track last move for highlighting
+      if (data?.lastMove && gameState) {
+        // We'd need to parse SAN to get squares - skip for now, clear
+        lastMoveFrom = null
+        lastMoveTo = null
+      }
+
+      selected = null
+      render()
+      break
+    }
+  }
+})
+
+// ============ INIT ============
+window.addEventListener('load', () => {
+  window.parent.postMessage({ type: 'app.ready' }, '*')
+  render()
+  sendResize()
+})
+</script>
+</body>
+</html>
