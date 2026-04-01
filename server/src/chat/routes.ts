@@ -44,6 +44,13 @@ chatRoutes.post('/send', async (req, res, next) => {
       return { role: row.role as 'system' | 'user' | 'assistant', content: row.content }
     })
 
+    // Set SSE headers and send conversationId before streaming
+    res.setHeader('Content-Type', 'text/event-stream')
+    res.setHeader('Cache-Control', 'no-cache')
+    res.setHeader('Connection', 'keep-alive')
+    res.flushHeaders()
+    res.write(`data: ${JSON.stringify({ type: 'conversation', conversationId })}\n\n`)
+
     await streamChatWithTools(messages, conversationId, userId, res)
   } catch (err) {
     if (!res.headersSent) next(err)

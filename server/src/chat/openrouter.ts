@@ -48,11 +48,13 @@ export async function streamChatWithTools(
     })
   }
 
-  // Set SSE headers
-  res.setHeader('Content-Type', 'text/event-stream')
-  res.setHeader('Cache-Control', 'no-cache')
-  res.setHeader('Connection', 'keep-alive')
-  res.flushHeaders()
+  // Set SSE headers if not already set by the caller
+  if (!res.headersSent) {
+    res.setHeader('Content-Type', 'text/event-stream')
+    res.setHeader('Cache-Control', 'no-cache')
+    res.setHeader('Connection', 'keep-alive')
+    res.flushHeaders()
+  }
 
   const MAX_TOOL_ROUNDS = 5
   let currentMessages = [...messages]
