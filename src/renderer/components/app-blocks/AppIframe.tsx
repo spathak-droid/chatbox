@@ -1,6 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Box, Loader, Paper, Text } from '@mantine/core'
-import { IframeBridge } from '@/packages/apps/iframe-bridge'
 
 interface AppIframeProps {
   appId: string
@@ -20,60 +19,76 @@ export function AppIframe({
   onToolRequest,
 }: AppIframeProps) {
   const iframeRef = useRef<HTMLIFrameElement>(null)
-  const bridgeRef = useRef<IframeBridge | null>(null)
   const [loading, setLoading] = useState(true)
-  const [iframeHeight, setIframeHeight] = useState(400)
+  const [iframeHeight, setIframeHeight] = useState(450)
   const [error, setError] = useState<string | null>(null)
+  const sentInit = useRef(false)
+  const stateRef = useRef(sessionState)
+  stateRef.current = sessionState
 
-  const handleReady = useCallback(() => {
-    bridgeRef.current?.send({
-      type: 'host.init',
-      appId,
-      appSessionId,
-      state: sessionState,
-    })
-    setLoading(false)
-  }, [appId, appSessionId, sessionState])
-
-  const handleResize = useCallback((msg: { height?: number }) => {
-    if (typeof msg.height === 'number' && msg.height > 0) {
-      setIframeHeight(msg.height)
-    }
-  }, [])
-
-  const handleComplete = useCallback((msg: { result?: Record<string, unknown> }) => {
-    onComplete?.(msg.result ?? {})
-  }, [onComplete])
-
-  const handleToolRequest = useCallback((msg: { toolName?: string; tool?: string; args?: Record<string, unknown> }) => {
-    const toolName = msg.toolName || msg.tool
-    if (toolName) {
-      onToolRequest?.({ tool: toolName, args: msg.args ?? {} })
-    }
-  }, [onToolRequest])
-
-  const handleError = useCallback((msg: { error?: string }) => {
-    setError(msg.error ?? 'Unknown app error')
-  }, [])
-
+  // Single stable message handler — no deps that cause re-creation
   useEffect(() => {
     const iframe = iframeRef.current
     if (!iframe) return
 
-    const bridge = new IframeBridge(iframe)
-    bridgeRef.current = bridge
+    const handler = (e: MessageEvent) => {
+      if (e.source !== iframe.contentWindow) return
+      const msg = e.data
+      if (!msg?.type) return
 
-    bridge.on('app.ready', handleReady)
-    bridge.on('app.resize', handleResize)
-    bridge.on('app.complete', handleComplete)
-    bridge.on('app.tool_request', handleToolRequest)
-    bridge.on('app.error', handleError)
-
-    return () => {
-      bridge.destroy()
-      bridgeRef.current = null
+      switch (msg.type) {
+        case 'app.ready': {
+          // Send init with current state
+          iframe.contentWindow?.postMessage({
+            type: 'host.init',
+            appSessionId,
+            state: stateRef.current,
+          }, '*')
+          sentInit.current = true
+          setLoading(false)
+          break
+        }
+        case 'app.resize': {
+          if (typeof msg.height === 'number' && msg.height > 50) {
+            setIframeHeight(Math.min(msg.height, 600))
+          }
+          break
+        }
+        case 'app.complete': {
+          onComplete?.(msg.result ?? { summary: msg.summary })
+          break
+        }
+        case 'app.tool_request': {
+          const toolName = msg.toolName || msg.tool
+          if (toolName) {
+            onToolRequest?.({ tool: toolName, args: msg.args ?? {} })
+          }
+          break
+        }
+        case 'app.state_patch': {
+          // App sent a state update
+          break
+        }
+        case 'app.error': {
+          setError(msg.error ?? 'Unknown app error')
+          break
+        }
+      }
     }
-  }, [handleReady, handleResize, handleComplete, handleToolRequest, handleError])
+
+    window.addEventListener('message', handler)
+    return () => window.removeEventListener('message', handler)
+  }, [appSessionId]) // Only recreate if session changes, NOT on every state change
+
+  // If state updates after init was sent, push a patch
+  useEffect(() => {
+    if (sentInit.current && iframeRef.current?.contentWindow) {
+      iframeRef.current.contentWindow.postMessage({
+        type: 'host.state_patch',
+        patch: sessionState,
+      }, '*')
+    }
+  }, [sessionState])
 
   return (
     <Paper withBorder radius="md" p={0} style={{ overflow: 'hidden', position: 'relative' }}>
