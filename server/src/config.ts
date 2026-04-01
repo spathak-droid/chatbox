@@ -6,7 +6,8 @@ export const config = {
   databaseUrl: process.env.DATABASE_URL || 'postgresql://localhost:5432/chatbridge',
   jwtSecret: process.env.JWT_SECRET || 'dev-secret-change-in-production',
   openrouterApiKey: process.env.OPENROUTER_API_KEY || '',
-  openrouterModel: process.env.OPENROUTER_MODEL || 'anthropic/claude-sonnet-4-20250514',
+  openrouterModel: process.env.OPENROUTER_MODEL || 'anthropic/claude-sonnet-4',
+
   corsOrigin: process.env.CORS_ORIGIN || 'http://localhost:1212',
   googleClientId: process.env.GOOGLE_CLIENT_ID || '',
   googleClientSecret: process.env.GOOGLE_CLIENT_SECRET || '',

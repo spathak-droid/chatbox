@@ -8,52 +8,31 @@ export const manifest = {
   authType: 'none' as const,
   baseUrl,
   iframeUrl: `${baseUrl}/app`,
+  permissions: [],
   tools: [
     {
       name: 'chess_start_game',
       description: 'Start a new chess game. Returns the initial board position.',
-      params: {
-        type: 'object' as const,
-        properties: {
-          playerColor: {
-            type: 'string' as const,
-            enum: ['white', 'black'],
-            description: 'Color the player wants to play as. Defaults to white.',
-          },
-        },
-      },
+      parameters: [
+        { name: 'playerColor', type: 'string' as const, description: 'Color the player wants to play as. Defaults to white.', required: false, enum: ['white', 'black'] },
+      ],
     },
     {
       name: 'chess_submit_move',
-      description:
-        'Submit a chess move. Accepts SAN (e.g., "e4", "Nf3", "O-O") or UCI (e.g., "e2e4") format.',
-      params: {
-        type: 'object' as const,
-        properties: {
-          move: {
-            type: 'string' as const,
-            description: 'The move in SAN or UCI format.',
-          },
-        },
-        required: ['move'],
-      },
+      description: 'Submit a chess move. Accepts SAN (e.g., "e4", "Nf3", "O-O") or UCI (e.g., "e2e4") format.',
+      parameters: [
+        { name: 'move', type: 'string' as const, description: 'The move in SAN or UCI format.', required: true },
+      ],
     },
     {
       name: 'chess_get_hint',
-      description:
-        'Get the current board state and legal moves for AI analysis.',
-      params: {
-        type: 'object' as const,
-        properties: {},
-      },
+      description: 'Get the current board state and legal moves for AI analysis.',
+      parameters: [],
     },
     {
       name: 'chess_end_game',
       description: 'End the current chess game.',
-      params: {
-        type: 'object' as const,
-        properties: {},
-      },
+      parameters: [],
     },
   ],
 }
