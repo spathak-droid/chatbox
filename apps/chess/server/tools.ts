@@ -1,10 +1,10 @@
 import { newGame, makeMove, getHint, isCheck, type ChessState } from './engine.js'
 
 interface AppResultEnvelope {
+  status: 'ok' | 'error' | 'pending'
   data?: Record<string, unknown>
+  summary?: string
   error?: string
-  state_patch?: Record<string, unknown>
-  iframe_action?: string
 }
 
 export function handleTool(
@@ -12,40 +12,42 @@ export function handleTool(
   args: Record<string, unknown>,
   sessionState: Record<string, unknown> | null
 ): AppResultEnvelope {
-  const gameState = sessionState?.chess as ChessState | undefined
+  const gameState = (sessionState as ChessState | undefined) ?? undefined
+  // Also check if state is nested under 'chess' key
+  const chess = gameState?.fen ? gameState : (sessionState?.chess as ChessState | undefined)
 
   switch (toolName) {
     case 'chess_start_game': {
       const playerColor = (args.playerColor as 'white' | 'black') || 'white'
       const state = newGame(playerColor)
       return {
+        status: 'ok',
         data: {
-          summary: `New chess game started. You are playing as ${playerColor}. FEN: ${state.fen}`,
           fen: state.fen,
-          playerColor,
-          gameOver: false,
+          moves: state.moves,
+          playerColor: state.playerColor,
+          gameOver: state.gameOver,
         },
-        state_patch: { chess: state },
-        iframe_action: 'reload',
+        summary: `New chess game started. You are playing as ${playerColor}. FEN: ${state.fen}`,
       }
     }
 
     case 'chess_submit_move': {
-      if (!gameState) {
-        return { error: 'No active game. Use chess_start_game first.' }
+      if (!chess) {
+        return { status: 'error', error: 'No active game. Use chess_start_game first.' }
       }
-      if (gameState.gameOver) {
-        return { error: `Game is already over. Result: ${gameState.result}` }
+      if (chess.gameOver) {
+        return { status: 'error', error: `Game is already over. Result: ${chess.result}` }
       }
 
       const moveStr = args.move as string
       if (!moveStr) {
-        return { error: 'Missing required parameter: move' }
+        return { status: 'error', error: 'Missing required parameter: move' }
       }
 
-      const result = makeMove(gameState, moveStr)
+      const result = makeMove(chess, moveStr)
       if (result.error) {
-        return { error: result.error }
+        return { status: 'error', error: result.error }
       }
 
       const check = isCheck(result.state.fen)
@@ -57,55 +59,54 @@ export function handleTool(
       }
 
       return {
+        status: 'ok',
         data: {
-          summary,
           fen: result.state.fen,
-          lastMove: result.state.moves[result.state.moves.length - 1],
           moves: result.state.moves,
-          check,
+          playerColor: result.state.playerColor,
           gameOver: result.state.gameOver,
           result: result.state.result,
         },
-        state_patch: { chess: result.state },
+        summary,
       }
     }
 
     case 'chess_get_hint': {
-      if (!gameState) {
-        return { error: 'No active game. Use chess_start_game first.' }
+      if (!chess) {
+        return { status: 'error', error: 'No active game. Use chess_start_game first.' }
       }
 
-      const hint = getHint(gameState)
+      const hint = getHint(chess)
       return {
+        status: 'ok',
         data: {
-          summary: `Current position FEN: ${hint.fen}. Turn: ${hint.turn}. Legal moves: ${hint.legalMoves.join(', ')}`,
           fen: hint.fen,
           turn: hint.turn,
           legalMoves: hint.legalMoves,
-          moves: gameState.moves,
+          moves: chess.moves,
         },
+        summary: `Current position FEN: ${hint.fen}. Turn: ${hint.turn}. Legal moves: ${hint.legalMoves.join(', ')}`,
       }
     }
 
     case 'chess_end_game': {
-      if (!gameState) {
-        return { error: 'No active game.' }
+      if (!chess) {
+        return { status: 'error', error: 'No active game.' }
       }
 
-      const moveCount = gameState.moves.length
-      const finalFen = gameState.fen
       return {
+        status: 'ok',
         data: {
-          summary: `Game ended after ${moveCount} moves. Final position: ${finalFen}`,
-          moveCount,
-          finalFen,
-          moves: gameState.moves,
+          gameOver: true,
+          result: 'Game ended by player',
+          moves: chess.moves,
+          fen: chess.fen,
         },
-        state_patch: { chess: null },
+        summary: `Game ended after ${chess.moves.length} moves. Final position: ${chess.fen}`,
       }
     }
 
     default:
-      return { error: `Unknown tool: ${toolName}` }
+      return { status: 'error', error: `Unknown tool: ${toolName}` }
   }
 }

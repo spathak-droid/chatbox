@@ -256,7 +256,7 @@ export function ChatBridgeChat({ token, user, onLogout }: ChatBridgeChatProps) {
                 const iframeUrl = getAppIframeUrl(toolName)
                 const appId = getAppIdFromToolName(toolName)
 
-                if (iframeUrl && appId && event.result) {
+                if (iframeUrl && appId && event.result && event.result.status !== 'error') {
                   const appSessionId = event.result.appSessionId || event.result.sessionId || `session-${Date.now()}`
                   const sessionState = event.result.data || event.result.state || event.result || {}
 
@@ -266,7 +266,13 @@ export function ChatBridgeChat({ token, user, onLogout }: ChatBridgeChatProps) {
                     sessionState,
                     appSessionId,
                   }
-                  currentAppIframes.push(iframe)
+                  // Replace existing iframe for same app (avoid duplicates)
+                  const existingIdx = currentAppIframes.findIndex((f) => f.appId === appId)
+                  if (existingIdx >= 0) {
+                    currentAppIframes[existingIdx] = iframe
+                  } else {
+                    currentAppIframes.push(iframe)
+                  }
                   setMessages((prev) =>
                     prev.map((m) =>
                       m.id === assistantMsgId ? { ...m, appIframes: [...currentAppIframes] } : m
