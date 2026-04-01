@@ -45,9 +45,10 @@ export function AppIframe({
     onComplete?.(msg.result ?? {})
   }, [onComplete])
 
-  const handleToolRequest = useCallback((msg: { tool?: string; args?: Record<string, unknown> }) => {
-    if (msg.tool) {
-      onToolRequest?.({ tool: msg.tool, args: msg.args ?? {} })
+  const handleToolRequest = useCallback((msg: { toolName?: string; tool?: string; args?: Record<string, unknown> }) => {
+    const toolName = msg.toolName || msg.tool
+    if (toolName) {
+      onToolRequest?.({ tool: toolName, args: msg.args ?? {} })
     }
   }, [onToolRequest])
 

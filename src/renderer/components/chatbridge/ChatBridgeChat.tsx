@@ -258,7 +258,7 @@ export function ChatBridgeChat({ token, user, onLogout }: ChatBridgeChatProps) {
 
                 if (iframeUrl && appId && event.result) {
                   const appSessionId = event.result.appSessionId || event.result.sessionId || `session-${Date.now()}`
-                  const sessionState = event.result.state || event.result || {}
+                  const sessionState = event.result.data || event.result.state || event.result || {}
 
                   const iframe = {
                     appId,
