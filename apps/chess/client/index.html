@@ -307,8 +307,8 @@ window.addEventListener('message', (event) => {
 
   switch (msg.type) {
     case 'host.init': {
-      // Initial state from host
-      const state = msg.state?.chess
+      // Initial state from host — handle both nested and flat formats
+      const state = msg.state?.chess || (msg.state?.fen ? msg.state : null)
       if (state) {
         gameState = state
         render()
@@ -317,13 +317,15 @@ window.addEventListener('message', (event) => {
     }
 
     case 'host.state_patch': {
-      // State update
+      // State update — handle both nested and flat formats
       const patch = msg.patch || msg.state_patch
       if (patch?.chess !== undefined) {
         gameState = patch.chess
-        selected = null
-        render()
+      } else if (patch?.fen) {
+        gameState = patch
       }
+      selected = null
+      render()
       break
     }
 
