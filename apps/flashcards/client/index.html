@@ -1,0 +1,592 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Flashcards</title>
+  <style>
+    *, *::before, *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+      background: #faf5ff;
+      color: #1a1a2e;
+      padding: 16px;
+      min-height: 100px;
+    }
+
+    .container {
+      max-width: 520px;
+      margin: 0 auto;
+    }
+
+    .waiting {
+      text-align: center;
+      padding: 40px 16px;
+      color: #6c757d;
+      font-size: 16px;
+    }
+
+    .waiting .spinner {
+      display: inline-block;
+      width: 24px;
+      height: 24px;
+      border: 3px solid #e9d5ff;
+      border-top-color: #7c3aed;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      margin-bottom: 12px;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 16px;
+      padding-bottom: 12px;
+      border-bottom: 2px solid #ede9fe;
+    }
+
+    .topic-badge {
+      background: #7c3aed;
+      color: white;
+      padding: 4px 14px;
+      border-radius: 12px;
+      font-size: 13px;
+      font-weight: 600;
+    }
+
+    .score-badge {
+      font-size: 13px;
+      font-weight: 600;
+      color: #6d28d9;
+    }
+
+    .progress {
+      text-align: center;
+      font-size: 14px;
+      color: #6c757d;
+      margin-bottom: 8px;
+    }
+
+    .progress-bar {
+      width: 100%;
+      height: 6px;
+      background: #ede9fe;
+      border-radius: 3px;
+      margin-bottom: 24px;
+      overflow: hidden;
+    }
+
+    .progress-bar .fill {
+      height: 100%;
+      background: #7c3aed;
+      border-radius: 3px;
+      transition: width 0.3s ease;
+    }
+
+    /* Flip card */
+    .card-container {
+      perspective: 800px;
+      margin-bottom: 20px;
+    }
+
+    .card-inner {
+      position: relative;
+      width: 100%;
+      min-height: 220px;
+      transition: transform 0.5s ease;
+      transform-style: preserve-3d;
+      cursor: pointer;
+    }
+
+    .card-inner.flipped {
+      transform: rotateY(180deg);
+    }
+
+    .card-front, .card-back {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      min-height: 220px;
+      border-radius: 16px;
+      padding: 32px 24px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      backface-visibility: hidden;
+      box-shadow: 0 4px 16px rgba(124, 58, 237, 0.12);
+    }
+
+    .card-front {
+      background: white;
+    }
+
+    .card-front .label {
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: #a78bfa;
+      margin-bottom: 16px;
+      font-weight: 600;
+    }
+
+    .card-front .text {
+      font-size: 22px;
+      font-weight: 700;
+      color: #1a1a2e;
+      text-align: center;
+      line-height: 1.4;
+    }
+
+    .card-back {
+      background: linear-gradient(135deg, #7c3aed, #6d28d9);
+      color: white;
+      transform: rotateY(180deg);
+    }
+
+    .card-back .label {
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: #ddd6fe;
+      margin-bottom: 16px;
+      font-weight: 600;
+    }
+
+    .card-back .text {
+      font-size: 20px;
+      font-weight: 600;
+      text-align: center;
+      line-height: 1.4;
+    }
+
+    .card-hint {
+      text-align: center;
+      font-size: 13px;
+      color: #a78bfa;
+      margin-bottom: 16px;
+    }
+
+    .btn-row {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 12px;
+    }
+
+    .btn {
+      flex: 1;
+      padding: 14px 20px;
+      font-size: 16px;
+      font-weight: 600;
+      border: none;
+      border-radius: 12px;
+      cursor: pointer;
+      transition: background 0.2s, transform 0.1s;
+    }
+
+    .btn:active {
+      transform: scale(0.97);
+    }
+
+    .btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    .btn-flip {
+      background: #7c3aed;
+      color: white;
+    }
+
+    .btn-flip:hover:not(:disabled) {
+      background: #6d28d9;
+    }
+
+    .btn-known {
+      background: #d1fae5;
+      color: #065f46;
+    }
+
+    .btn-known:hover:not(:disabled) {
+      background: #a7f3d0;
+    }
+
+    .btn-unknown {
+      background: #fee2e2;
+      color: #991b1b;
+    }
+
+    .btn-unknown:hover:not(:disabled) {
+      background: #fecaca;
+    }
+
+    /* Summary */
+    .summary-card {
+      background: white;
+      border-radius: 16px;
+      padding: 32px 24px;
+      text-align: center;
+      box-shadow: 0 4px 16px rgba(124, 58, 237, 0.12);
+    }
+
+    .summary-card h2 {
+      font-size: 24px;
+      margin-bottom: 8px;
+      color: #1a1a2e;
+    }
+
+    .summary-card .score {
+      font-size: 48px;
+      font-weight: 800;
+      color: #7c3aed;
+      margin: 16px 0;
+    }
+
+    .summary-card .accuracy {
+      font-size: 18px;
+      color: #6c757d;
+      margin-bottom: 20px;
+    }
+
+    .review-list {
+      text-align: left;
+      background: #faf5ff;
+      border-radius: 12px;
+      padding: 16px;
+      margin-top: 16px;
+    }
+
+    .review-list h3 {
+      font-size: 14px;
+      color: #7c3aed;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 10px;
+    }
+
+    .review-item {
+      padding: 10px 0;
+      border-bottom: 1px solid #ede9fe;
+      font-size: 14px;
+    }
+
+    .review-item:last-child {
+      border-bottom: none;
+    }
+
+    .review-item .front {
+      font-weight: 600;
+      color: #1a1a2e;
+    }
+
+    .review-item .back {
+      color: #6d28d9;
+      margin-top: 2px;
+    }
+
+    .hidden {
+      display: none !important;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <!-- Waiting state -->
+    <div id="waiting" class="waiting">
+      <div class="spinner"></div>
+      <div>Waiting for flashcard deck...</div>
+    </div>
+
+    <!-- Active card view -->
+    <div id="game" class="hidden">
+      <div class="header">
+        <span id="topicBadge" class="topic-badge">Topic</span>
+        <span id="scoreBadge" class="score-badge"></span>
+      </div>
+
+      <div class="progress">Card <span id="currentNum">1</span> of <span id="totalNum">0</span></div>
+      <div class="progress-bar"><div id="progressFill" class="fill" style="width: 0%"></div></div>
+
+      <div class="card-container" id="cardContainer" onclick="flipCard()">
+        <div class="card-inner" id="cardInner">
+          <div class="card-front">
+            <div class="label">Question</div>
+            <div class="text" id="frontText"></div>
+          </div>
+          <div class="card-back">
+            <div class="label">Answer</div>
+            <div class="text" id="backText"></div>
+          </div>
+        </div>
+      </div>
+
+      <div id="cardHint" class="card-hint">Click the card to reveal the answer</div>
+
+      <div id="flipRow" class="btn-row">
+        <button class="btn btn-flip" id="flipBtn" onclick="flipCard()">Flip Card</button>
+      </div>
+
+      <div id="actionRow" class="btn-row hidden">
+        <button class="btn btn-known" onclick="markKnown()">Know It</button>
+        <button class="btn btn-unknown" onclick="markUnknown()">Review Later</button>
+      </div>
+    </div>
+
+    <!-- Summary view -->
+    <div id="summary" class="hidden">
+      <div class="summary-card">
+        <h2>Deck Complete</h2>
+        <div id="summaryScore" class="score">0/0</div>
+        <div id="summaryAccuracy" class="accuracy">0% accuracy</div>
+        <div id="reviewList" class="review-list hidden">
+          <h3>Cards to Review</h3>
+          <div id="reviewItems"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // State
+    let state = {}
+    let sessionId = null
+
+    // Elements
+    const waitingEl = document.getElementById('waiting')
+    const gameEl = document.getElementById('game')
+    const summaryEl = document.getElementById('summary')
+    const topicBadge = document.getElementById('topicBadge')
+    const scoreBadge = document.getElementById('scoreBadge')
+    const currentNumEl = document.getElementById('currentNum')
+    const totalNumEl = document.getElementById('totalNum')
+    const progressFill = document.getElementById('progressFill')
+    const cardInner = document.getElementById('cardInner')
+    const frontText = document.getElementById('frontText')
+    const backText = document.getElementById('backText')
+    const cardHint = document.getElementById('cardHint')
+    const flipRow = document.getElementById('flipRow')
+    const actionRow = document.getElementById('actionRow')
+
+    // postMessage bridge
+    function sendToHost(message) {
+      window.parent.postMessage(message, '*')
+    }
+
+    function sendResize() {
+      const height = document.body.scrollHeight + 32
+      sendToHost({ type: 'app.resize', height })
+    }
+
+    window.addEventListener('message', (event) => {
+      const msg = event.data
+      if (!msg || !msg.type) return
+
+      switch (msg.type) {
+        case 'host.init':
+          sessionId = msg.appSessionId
+          if (msg.state && msg.state.cards) {
+            state = msg.state
+            renderCard()
+          }
+          break
+
+        case 'host.state_patch':
+          state = { ...state, ...msg.patch }
+          if (state.finished) {
+            renderSummary()
+          } else if (state.cards) {
+            renderCard()
+          }
+          break
+
+        case 'host.tool_result':
+          handleToolResult(msg.toolName, msg.result)
+          break
+      }
+    })
+
+    function handleToolResult(toolName, result) {
+      if (result.status === 'error') {
+        return
+      }
+
+      if (result.data) {
+        state = { ...state, ...result.data }
+      }
+
+      switch (toolName) {
+        case 'flashcards_start_deck':
+          renderCard()
+          break
+
+        case 'flashcards_reveal_card':
+          showBack()
+          break
+
+        case 'flashcards_mark_known':
+        case 'flashcards_mark_unknown':
+          if (state.finished) {
+            setTimeout(() => renderSummary(), 300)
+          } else {
+            renderCard()
+          }
+          break
+
+        case 'flashcards_finish_deck':
+          renderSummary()
+          break
+      }
+    }
+
+    function renderCard() {
+      waitingEl.classList.add('hidden')
+      summaryEl.classList.add('hidden')
+      gameEl.classList.remove('hidden')
+
+      const { cards, currentIndex = 0, topic = 'Flashcards', known = 0, unknown = 0 } = state
+
+      if (!cards || currentIndex >= cards.length) return
+
+      const card = cards[currentIndex]
+      const totalCards = cards.length
+
+      topicBadge.textContent = topic
+      scoreBadge.textContent = `${known} known / ${unknown} review`
+
+      currentNumEl.textContent = currentIndex + 1
+      totalNumEl.textContent = totalCards
+      progressFill.style.width = `${(currentIndex / totalCards) * 100}%`
+
+      frontText.textContent = card.front
+      backText.textContent = card.back
+
+      // Reset to front
+      cardInner.classList.remove('flipped')
+      cardHint.classList.remove('hidden')
+      flipRow.classList.remove('hidden')
+      actionRow.classList.add('hidden')
+
+      sendResize()
+    }
+
+    function flipCard() {
+      if (state.revealed) return
+
+      cardInner.classList.add('flipped')
+      cardHint.classList.add('hidden')
+      flipRow.classList.add('hidden')
+      actionRow.classList.remove('hidden')
+
+      sendToHost({
+        type: 'app.tool_request',
+        toolName: 'flashcards_reveal_card',
+        args: {},
+      })
+
+      sendResize()
+    }
+
+    function showBack() {
+      cardInner.classList.add('flipped')
+      cardHint.classList.add('hidden')
+      flipRow.classList.add('hidden')
+      actionRow.classList.remove('hidden')
+      sendResize()
+    }
+
+    function markKnown() {
+      sendToHost({
+        type: 'app.tool_request',
+        toolName: 'flashcards_mark_known',
+        args: {},
+      })
+    }
+
+    function markUnknown() {
+      sendToHost({
+        type: 'app.tool_request',
+        toolName: 'flashcards_mark_unknown',
+        args: {},
+      })
+    }
+
+    function renderSummary() {
+      waitingEl.classList.add('hidden')
+      gameEl.classList.add('hidden')
+      summaryEl.classList.remove('hidden')
+
+      const known = state.known ?? 0
+      const unknown = state.unknown ?? 0
+      const total = known + unknown
+      const accuracy = total > 0 ? Math.round((known / total) * 100) : 0
+
+      document.getElementById('summaryScore').textContent = `${known}/${total}`
+      document.getElementById('summaryAccuracy').textContent = `${accuracy}% accuracy`
+
+      const unknownCards = state.unknownCards ?? []
+      const reviewList = document.getElementById('reviewList')
+      const reviewItems = document.getElementById('reviewItems')
+
+      if (unknownCards.length > 0) {
+        reviewList.classList.remove('hidden')
+        reviewItems.innerHTML = unknownCards.map((c) => `
+          <div class="review-item">
+            <div class="front">${escapeHtml(c.front)}</div>
+            <div class="back">${escapeHtml(c.back)}</div>
+          </div>
+        `).join('')
+      } else {
+        reviewList.classList.add('hidden')
+      }
+
+      sendToHost({
+        type: 'app.complete',
+        summary: `Flashcard deck complete: ${known}/${total} known (${accuracy}%)`,
+      })
+
+      sendResize()
+    }
+
+    function escapeHtml(str) {
+      const div = document.createElement('div')
+      div.textContent = str
+      return div.innerHTML
+    }
+
+    // Keyboard support
+    document.addEventListener('keydown', (e) => {
+      if (e.key === ' ' || e.key === 'Enter') {
+        if (!state.revealed) {
+          e.preventDefault()
+          flipCard()
+        }
+      } else if (e.key === 'ArrowRight' || e.key === 'k') {
+        if (state.revealed) {
+          e.preventDefault()
+          markKnown()
+        }
+      } else if (e.key === 'ArrowLeft' || e.key === 'r') {
+        if (state.revealed) {
+          e.preventDefault()
+          markUnknown()
+        }
+      }
+    })
+
+    // Init: send ready
+    sendToHost({ type: 'app.ready', appId: 'flashcards' })
+    sendResize()
+  </script>
+</body>
+</html>
