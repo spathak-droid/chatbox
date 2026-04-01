@@ -2,6 +2,7 @@
 import cors from 'cors'
 import express from 'express'
 import { config } from './config.js'
+import { authRoutes } from './auth/routes.js'
 import { errorHandler } from './middleware/error-handler.js'
 
 const app = express()
@@ -14,8 +15,8 @@ app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: Date.now() })
 })
 
-// Placeholder for routes — will be added in later tasks
-// app.use('/api/auth', authRoutes)
+// Routes
+app.use('/api/auth', authRoutes)
 // app.use('/api/chat', chatRoutes)
 // app.use('/api/apps', appRoutes)
 
