@@ -32,32 +32,87 @@ server/
 │       └── langfuse.ts                    # Shared Langfuse client (singleton)
 ├── tests/
 │   └── evals/
-│       ├── setup.ts                       # Langfuse init, mock helpers, scoring utils
+│       ├── setup.ts                       # Langfuse init, scoring utils, mode detection
+│       ├── recorder.ts                    # Record mode: intercept fetch, save responses
+│       ├── replayer.ts                    # Replay mode: serve fixtures instead of API
+│       ├── fixtures/                      # Recorded LLM request/response pairs
+│       │   ├── happy-path/
+│       │   │   ├── H9-chess-start.json
+│       │   │   └── ...
+│       │   ├── golden-set/
+│       │   ├── adversarial/
+│       │   ├── multi-turn/
+│       │   └── content-safety/
 │       ├── happy-path.eval.ts             # Normal flows (deterministic)
 │       ├── golden-set.eval.ts             # Canonical I/O pairs (deterministic)
 │       ├── adversarial.eval.ts            # Prompt injection, tool hijacking (deterministic)
 │       ├── dark.eval.ts                   # Failure modes, edge cases (deterministic)
 │       ├── concurrency.eval.ts            # Race conditions, parallel requests (deterministic)
 │       ├── prompt-regression.eval.ts      # System prompt mutation testing (deterministic)
-│       └── live/
-│           ├── happy-path.live.ts         # Live LLM smoke tests
-│           ├── golden-set.live.ts         # Live canonical routing verification
-│           ├── adversarial.live.ts        # Live prompt injection tests
-│           ├── multi-turn.live.ts         # Multi-turn conversation tests
-│           └── content-safety.live.ts     # Content appropriateness for kids
+│       ├── multi-turn.eval.ts             # Multi-turn conversation evals (replay from fixtures)
+│       └── content-safety.eval.ts         # Content appropriateness (replay from fixtures)
 ```
+
+### Record/Replay Architecture
+
+All 75 evals run from recorded fixtures by default — **$0 per run**.
+
+**Three modes via `EVAL_MODE` env var:**
+
+| Mode | Behavior | Cost | When to use |
+|------|----------|------|-------------|
+| `replay` (default) | Serve fixtures, no API calls | $0 | CI, daily dev, every PR |
+| `record` | Hit real API, save request/response pairs as fixtures | ~$1.20 | After prompt changes, new evals, tool schema changes |
+| `live` | Hit real API, don't save (spot-check) | ~$1.20 | On-demand reality check |
+
+**Recorder (`recorder.ts`):**
+- Wraps `global.fetch` to intercept calls to `openrouter.ai`
+- Captures full request (messages, tools, model) and response (choices, usage)
+- Saves as `fixtures/{category}/{test-id}.json` with metadata (timestamp, git SHA, prompt hash)
+- Non-OpenRouter fetch calls (app servers, DB) pass through to real/mocked backends
+
+**Replayer (`replayer.ts`):**
+- On test start, loads fixture for current test ID
+- Intercepts `fetch` to `openrouter.ai` and returns recorded response
+- Validates that the request structure matches what was recorded (warns on drift)
+- If fixture is missing, test fails with clear message: "No fixture for {test-id}. Run with EVAL_MODE=record"
+
+**Fixture format:**
+```json
+{
+  "testId": "H9-chess-start",
+  "category": "happy-path",
+  "recordedAt": "2026-04-02T18:00:00Z",
+  "gitSha": "b5d48ac",
+  "promptHash": "a1b2c3d4",
+  "exchanges": [
+    {
+      "request": { "model": "...", "messages": [...], "tools": [...], "stream": false },
+      "response": { "choices": [...], "usage": { "total_tokens": 1234 } }
+    }
+  ]
+}
+```
+
+**Fixture staleness detection:**
+- Each fixture stores a hash of the system prompt at record time
+- On replay, if current system prompt hash differs, emit warning: "Fixture recorded with different prompt — consider re-recording"
+- `EVAL_MODE=record` regenerates all fixtures fresh
 
 ### Running Evals
 
 ```bash
-# Deterministic only (CI)
+# Default: replay from fixtures ($0, fast, CI-safe)
 npx vitest run tests/evals/
 
-# Live only (on-demand, costs money)
-npx vitest run tests/evals/live/
+# Record new fixtures (after prompt/tool changes, ~$1.20)
+EVAL_MODE=record npx vitest run tests/evals/
 
-# All evals
-npx vitest run tests/evals/ --reporter=verbose
+# Live spot-check (no fixture save, ~$1.20)
+EVAL_MODE=live npx vitest run tests/evals/
+
+# Single category
+npx vitest run tests/evals/adversarial.eval.ts
 ```
 
 ---
@@ -170,9 +225,9 @@ Failure modes, malformed data, infrastructure failures.
 | D11 | Confirm with no pending actions | Call confirm endpoint with empty pending | Returns error gracefully |
 | D12 | Cancel then confirm same conversation | Cancel clears, then confirm | Confirm returns "no pending actions" |
 
-### 5. Multi-Turn (0 deterministic + 6 live = 6 total)
+### 5. Multi-Turn (6 recorded = 6 total)
 
-Extended conversations testing context management and state coherence.
+Extended conversations testing context management and state coherence. All use recorded fixtures (real LLM responses captured once, replayed free).
 
 | # | Flow | Turns | Assert |
 |---|------|:---:|--------|
@@ -194,9 +249,9 @@ Race conditions and parallel request handling.
 | C3 | Confirm + cancel race on same conversation | One succeeds, other gets "no pending actions" |
 | C4 | Send message while previous SSE stream still open | Previous stream ends, new one starts cleanly |
 
-### 7. Content Safety (0 deterministic + 5 live = 5 total)
+### 7. Content Safety (5 recorded = 5 total)
 
-Age-appropriate responses for 8-14 year old students.
+Age-appropriate responses for 8-14 year old students. All use recorded fixtures.
 
 | # | Input | Assert |
 |---|-------|--------|
@@ -257,44 +312,63 @@ Instrumented across all live evals (not separate tests):
 
 ---
 
-## Mock Strategy (Deterministic Evals)
+## Mock Strategy
 
-Mock the `fetch` call to OpenRouter in `streamChatWithTools`. Each test provides:
+Two types of mocking depending on what's being tested:
+
+### Hand-crafted mocks (Dark evals, some Adversarial)
+
+For testing code behavior with specific malformed/edge-case LLM outputs, hand-write the mock response:
 
 ```typescript
 interface MockLLMResponse {
-  // Pass 1 response
   pass1: {
     content?: string
     tool_calls?: Array<{ id: string; function: { name: string; arguments: string } }>
   }
-  // Pass 2 response (if Pass 1 had tools)
   pass2?: {
     content: string
   }
 }
 ```
 
-Mock helper intercepts `fetch('https://openrouter.ai/...')` and returns the configured response. App server calls are also mocked to return canned `AppResultEnvelope` responses.
+These test our code's resilience — guardrail filtering, error handling, two-pass flow integrity. The LLM response is intentionally crafted to trigger specific code paths.
 
-This lets us test:
-- Guardrail filtering (mock LLM returns wrong tool, verify our code blocks it)
-- Two-pass flow (mock Pass 1 with tools, verify Pass 2 called without tools)
-- Destructive interception (mock LLM returns destructive tool, verify pending_confirmation)
-- Error handling (mock malformed responses, verify graceful degradation)
+### Recorded fixtures (everything else)
+
+For testing realistic LLM behavior, use recorded fixtures from real API calls. The recorder/replayer handles `fetch` interception automatically. Tests don't know whether they're hitting the real API or a fixture — same assertions either way.
+
+### App server mocks
+
+All evals mock the app server responses (chess, math, flashcards, calendar) with canned `AppResultEnvelope` responses. This isolates the eval to the chat layer — we're testing LLM routing and our middleware, not whether the chess server works.
+
+---
+
+## Cost Model
+
+| Run mode | Cost | Speed | When |
+|----------|------|-------|------|
+| Replay (default) | $0 | ~5s for all 75 | Every PR, CI, daily |
+| Record | ~$1.20 | ~3-5 min | After prompt/tool changes |
+| Live spot-check | ~$1.20 | ~3-5 min | On-demand |
+
+**First-time setup:** ~$1.20 to record all fixtures.
+**Ongoing cost:** $0 per run. Re-record only when system prompt or tool schemas change (est. 2-3x/week during active dev = $2.40-3.60/week).
 
 ---
 
 ## Scorecard
 
-| Category | Deterministic | Live | Total |
+All 75 evals run from fixtures by default ($0). Categories marked "recorded" use real LLM responses captured once then replayed.
+
+| Category | Hand-mocked | Recorded | Total |
 |----------|:---:|:---:|:---:|
 | Happy Path | 8 | 4 | 12 |
 | Golden Set | 12 | 6 | 18 |
-| Adversarial | 10 | 5 | 15 |
+| Adversarial | 6 | 9 | 15 |
 | Dark | 12 | 0 | 12 |
 | Multi-Turn | 0 | 6 | 6 |
 | Concurrency | 4 | 0 | 4 |
 | Content Safety | 0 | 5 | 5 |
 | Prompt Regression | 3 | 0 | 3 |
-| **Total** | **49** | **26** | **75** |
+| **Total** | **45** | **30** | **75** |
