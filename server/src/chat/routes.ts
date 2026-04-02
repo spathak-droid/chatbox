@@ -5,6 +5,7 @@ import { query } from '../db/client.js'
 import { streamChatWithTools } from './openrouter.js'
 import { getPendingActions, executePendingActions, clearPendingActions } from '../apps/tool-router.js'
 import { getSessionsForConversation } from '../apps/session.js'
+import { config } from '../config.js'
 
 export const chatRoutes = Router()
 
@@ -116,7 +117,36 @@ chatRoutes.post('/conversations/:id/confirm-actions', requireAuth, async (req, r
       userId: req.user!.id,
       authToken,
     })
-    res.json({ ok: true, results })
+
+    // Generate brief summary via LLM
+    let summary = `Done! ${results.length} action(s) completed.`
+    try {
+      const summaryResponse = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${config.openrouterApiKey}`,
+          'Content-Type': 'application/json',
+          'HTTP-Referer': 'https://chatbridge.app',
+        },
+        body: JSON.stringify({
+          model: config.openrouterModel,
+          messages: [
+            { role: 'system', content: 'You are a friendly tutor assistant. Summarize what happened in 1 short sentence for a student aged 8-14. Be cheerful and brief.' },
+            { role: 'user', content: `These calendar actions were completed: ${JSON.stringify(results.map(r => r.summary || r.status))}` },
+          ],
+          stream: false,
+        }),
+      })
+      if (summaryResponse.ok) {
+        const summaryData = await summaryResponse.json()
+        const llmSummary = summaryData.choices?.[0]?.message?.content
+        if (llmSummary) summary = llmSummary
+      }
+    } catch {
+      // Fallback to default summary on LLM error
+    }
+
+    res.json({ ok: true, results, summary })
   } catch (err) {
     next(err)
   }
