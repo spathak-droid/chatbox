@@ -266,13 +266,6 @@ export function ChatBridgeChat({ token, user, onLogout }: ChatBridgeChatProps) {
                 const iframeUrl = getAppIframeUrl(toolName)
                 const appId = getAppIdFromToolName(toolName)
 
-                // Check for pending confirmation
-                if (event.result?.data?.pendingConfirmation) {
-                  setPendingActions(event.result.data.actions || [])
-                  scrollToBottom()
-                  break
-                }
-
                 if (iframeUrl && appId && event.result && event.result.status !== 'error') {
                   const appSessionId = event.result.appSessionId || event.result.sessionId || `session-${Date.now()}`
                   const sessionState = event.result.data || event.result.state || event.result || {}
@@ -309,6 +302,14 @@ export function ChatBridgeChat({ token, user, onLogout }: ChatBridgeChatProps) {
 
                   scrollToBottom()
                 }
+                break
+              }
+              case 'pending_confirmation': {
+                const actions = event.result?.data?.actions || []
+                setPendingActions(actions)
+                // Remove the empty assistant message (no text was streamed)
+                setMessages(prev => prev.filter(m => m.id !== assistantMsgId))
+                scrollToBottom()
                 break
               }
               case 'error': {
@@ -448,7 +449,7 @@ export function ChatBridgeChat({ token, user, onLogout }: ChatBridgeChatProps) {
         const confirmMsg: ChatMessage = {
           id: `system-${Date.now()}`,
           role: 'assistant',
-          content: `Done! ${data.results?.length || 0} action(s) completed.`,
+          content: data.summary || `Done! ${data.results?.length || 0} action(s) completed.`,
         }
         setMessages((prev) => [...prev, confirmMsg])
       }
