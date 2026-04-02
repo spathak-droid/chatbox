@@ -188,3 +188,8 @@ storybook-static
 .gstack/
 .worktrees/
 .claude/worktrees/
+
+# TutorMeAI scratch files
+SKILL.md
+presearch/
+
