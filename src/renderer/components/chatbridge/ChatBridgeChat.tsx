@@ -21,13 +21,13 @@ import { AppIframe } from '@/components/app-blocks/AppIframe'
 import { useAppStore } from '@/stores/appStore'
 import confetti from 'canvas-confetti'
 
-const API_BASE = 'http://localhost:3000/api'
+const API_BASE = (import.meta.env.VITE_API_BASE as string) || 'http://localhost:3000/api'
 
 const APP_PREFIX_MAP: Record<string, string> = {
-  math_: 'http://localhost:3001/app',
-  calendar_: 'http://localhost:3002/app',
-  chess_: 'http://localhost:3003/app',
-  flashcards_: 'http://localhost:3004/app',
+  math_: (import.meta.env.VITE_MATH_APP_URL as string) || 'http://localhost:3001/app',
+  calendar_: (import.meta.env.VITE_CALENDAR_APP_URL as string) || 'http://localhost:3002/app',
+  chess_: (import.meta.env.VITE_CHESS_APP_URL as string) || 'http://localhost:3003/app',
+  flashcards_: (import.meta.env.VITE_FLASHCARDS_APP_URL as string) || 'http://localhost:3004/app',
 }
 
 function getAppIframeUrl(toolName: string): string | null {
