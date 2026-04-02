@@ -7,7 +7,7 @@ import { getOAuthConnection } from './oauth-manager.js'
 const TOOL_TIMEOUT_MS = 15000
 
 // Tools that modify external user data need confirmation
-const DESTRUCTIVE_TOOLS = new Set([
+export const DESTRUCTIVE_TOOLS = new Set([
   'calendar_delete_event',
   'calendar_update_event',
   'calendar_create_study_plan',
