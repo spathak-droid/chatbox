@@ -132,6 +132,34 @@ describe('Concurrency Evals', () => {
     scoreAssertion(trace.id, 'both_correct', user1Chess && user2Chess)
   })
 
+  it('C2: same user, 3 messages in <1s — no crash', async () => {
+    const trace = createEvalTrace(CATEGORY, 'C2')
+    mockCtx = mockOpenRouterAndApps({
+      pass1: {
+        tool_calls: [{
+          id: 'tc-c2', type: 'function',
+          function: { name: 'chess_start_game', arguments: '{}' },
+        }],
+      },
+      pass2: { content: 'Game started!' },
+    })
+
+    const responses = [createMockSSEResponse(), createMockSSEResponse(), createMockSSEResponse()]
+
+    await Promise.all(
+      responses.map((r) =>
+        streamChatWithTools(
+          [{ role: 'user', content: "Let's play chess" }],
+          '00000000-0000-0000-0000-00000000c002', 'user-1', r.res
+        )
+      )
+    )
+
+    const allEnded = responses.every(r => r.isEnded())
+    expect(allEnded).toBe(true)
+    scoreAssertion(trace.id, 'all_complete', allEnded)
+  })
+
   it('C3: confirm + cancel race on same conversation', async () => {
     const trace = createEvalTrace(CATEGORY, 'C3')
     // Set up pending actions

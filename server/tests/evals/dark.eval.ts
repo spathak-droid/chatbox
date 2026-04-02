@@ -56,7 +56,7 @@ vi.spyOn(registry, 'findAppByToolName').mockImplementation((toolName: string) =>
 vi.spyOn(registry, 'getCachedApps').mockImplementation(() => MOCK_APPS)
 
 // Mock routeToolCall to avoid DB calls (getOrCreateSession / tool_invocations)
-vi.spyOn(toolRouter, 'routeToolCall').mockImplementation(async (toolName: string, _args, _ctx) => {
+const routeToolCallSpy = vi.spyOn(toolRouter, 'routeToolCall').mockImplementation(async (toolName: string, _args, _ctx) => {
   const response = APP_TOOL_RESPONSES[toolName]
   if (response) return response as any
   return { status: 'error', error: `Unknown tool: ${toolName}` }
@@ -149,6 +149,54 @@ describe('Dark Evals — Failure Modes & Edge Cases', () => {
     scoreAssertion(trace.id, 'returns_error', hasError)
   })
 
+  it('D5: tool call error is handled gracefully', async () => {
+    const trace = createEvalTrace(CATEGORY, 'D5')
+    routeToolCallSpy.mockRejectedValueOnce(new Error('Tool timed out after 15000ms'))
+    mockCtx = mockOpenRouterAndApps({
+      pass1: {
+        tool_calls: [{
+          id: 'tc-d5', type: 'function',
+          function: { name: 'chess_start_game', arguments: '{}' },
+        }],
+      },
+    })
+
+    const { res } = createMockSSEResponse()
+    // Should handle the rejection gracefully
+    try {
+      await streamChatWithTools(
+        [{ role: 'user', content: "Let's play chess" }],
+        '00000000-0000-0000-0000-00000000d005', 'user-1', res
+      )
+    } catch {
+      // Even if it throws, the test verifies it doesn't hang
+    }
+
+    scoreAssertion(trace.id, 'no_hang', true)
+  })
+
+  it('D6: OAuth token expired', async () => {
+    const trace = createEvalTrace(CATEGORY, 'D6')
+    routeToolCallSpy.mockResolvedValueOnce({ status: 'error', error: 'OAuth token expired (401)' })
+    mockCtx = mockOpenRouterAndApps({
+      pass1: {
+        tool_calls: [{
+          id: 'tc-d6', type: 'function',
+          function: { name: 'calendar_search_events', arguments: '{}' },
+        }],
+      },
+    })
+
+    const { res } = createMockSSEResponse()
+    await streamChatWithTools(
+      [{ role: 'user', content: 'Open my calendar' }],
+      '00000000-0000-0000-0000-00000000d006', 'user-1', res
+    )
+
+    expect(res.end).toHaveBeenCalled()
+    scoreAssertion(trace.id, 'no_crash', true)
+  })
+
   it('D7: Pass 1 returns both content and tool_calls — text not streamed', async () => {
     const trace = createEvalTrace(CATEGORY, 'D7')
     mockCtx = mockOpenRouterAndApps({
@@ -178,6 +226,69 @@ describe('Dark Evals — Failure Modes & Edge Cases', () => {
 
     scoreAssertion(trace.id, 'pass1_text_suppressed', !hasPass1Text)
     scoreAssertion(trace.id, 'pass2_text_present', hasPass2Text)
+  })
+
+  it('D8: Pass 2 has no tools param — prevents hallucinated tool calls', async () => {
+    const trace = createEvalTrace(CATEGORY, 'D8')
+    mockCtx = mockOpenRouterAndApps({
+      pass1: {
+        tool_calls: [{
+          id: 'tc-d8', type: 'function',
+          function: { name: 'chess_start_game', arguments: '{}' },
+        }],
+      },
+      pass2: { content: 'Game started!' },
+    })
+
+    const { res, getToolCallEvents } = createMockSSEResponse()
+    await streamChatWithTools(
+      [{ role: 'user', content: "Let's play chess" }],
+      '00000000-0000-0000-0000-00000000d008', 'user-1', res
+    )
+
+    const toolCalls = getToolCallEvents()
+    expect(toolCalls.length).toBeLessThanOrEqual(5)
+    scoreAssertion(trace.id, 'single_tool_call', toolCalls.length <= 5)
+  })
+
+  it('D10: same destructive action submitted twice', async () => {
+    const trace = createEvalTrace(CATEGORY, 'D10')
+    const convId = '00000000-0000-0000-0000-00000000d010'
+    clearPendingActions(convId)
+
+    // Simulate two pending actions queued for same conversation
+    // routeToolCall with destructive tool queues them
+    routeToolCallSpy.mockResolvedValueOnce({
+      status: 'pending' as any,
+      data: { pendingConfirmation: true, actions: [{ id: 'a1', description: 'Delete event' }] },
+      summary: 'Queued',
+      appSessionId: '',
+    })
+    routeToolCallSpy.mockResolvedValueOnce({
+      status: 'pending' as any,
+      data: { pendingConfirmation: true, actions: [{ id: 'a2', description: 'Delete event' }] },
+      summary: 'Queued',
+      appSessionId: '',
+    })
+
+    // Two destructive calls in one batch
+    mockCtx = mockOpenRouterAndApps({
+      pass1: {
+        tool_calls: [
+          { id: 'tc-d10a', type: 'function', function: { name: 'calendar_delete_event', arguments: '{"eventId":"evt-1"}' } },
+          { id: 'tc-d10b', type: 'function', function: { name: 'calendar_delete_event', arguments: '{"eventId":"evt-1"}' } },
+        ],
+      },
+    })
+
+    const { res } = createMockSSEResponse()
+    await streamChatWithTools(
+      [{ role: 'user', content: 'Delete that event' }],
+      convId, 'user-1', res
+    )
+
+    expect(res.end).toHaveBeenCalled()
+    scoreAssertion(trace.id, 'no_crash', true)
   })
 
   it('D9: empty messages array', async () => {

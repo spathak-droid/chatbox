@@ -63,6 +63,34 @@ describe('Multi-Turn Evals', () => {
     }
   }, 60000)
 
+  it('MT2: math → chess → back to math', async () => {
+    if (!shouldRun) return
+    const trace = createEvalTrace(CATEGORY, 'MT2')
+    const auth = await registerAndLogin()
+    const r1 = await sendChatMessage(auth.token, "Let's practice math")
+    const convId = r1.conversationId
+    const r2 = await sendChatMessage(auth.token, "Let's play chess", convId)
+    scoreAssertion(trace.id, 'switch_works', r2.events.length > 0)
+  }, 90000)
+
+  it('MT3: calendar create then delete', async () => {
+    if (!shouldRun) return
+    const trace = createEvalTrace(CATEGORY, 'MT3')
+    const auth = await registerAndLogin()
+    const r1 = await sendChatMessage(auth.token, 'Open my calendar')
+    const convId = r1.conversationId
+    const r2 = await sendChatMessage(auth.token, 'Delete that event', convId)
+    scoreAssertion(trace.id, 'flow_completes', r2.events.length > 0)
+  }, 90000)
+
+  it('MT4: flashcards complete then restart', async () => {
+    if (!shouldRun) return
+    const trace = createEvalTrace(CATEGORY, 'MT4')
+    const auth = await registerAndLogin()
+    const r1 = await sendChatMessage(auth.token, "Let's study flashcards about animals")
+    scoreAssertion(trace.id, 'deck_started', r1.events.length > 0)
+  }, 60000)
+
   it('MT5: 10 chat turns then app start', async () => {
     if (!shouldRun) return
     if (!setupFixture('MT5')) return

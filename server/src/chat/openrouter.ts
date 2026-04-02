@@ -481,7 +481,7 @@ function summarizeOldToolCalls(messages: ChatMessage[], recentTurnsRaw: number):
 // ============ DYNAMIC TOOL SCOPING ============
 // Only expose tools relevant to user's current intent
 // The LLM can't call a tool it can't see
-function scopeToolsToIntent(allTools: any[], userMessage: string): any[] {
+export function scopeToolsToIntent(allTools: any[], userMessage: string): any[] {
   // Detect intent from user message
   const wantsChess = /chess|play a game|play$|let'?s play/.test(userMessage)
   const wantsMath = /math|practice|problems|addition|algebra|subtract|multipl|divid/.test(userMessage)

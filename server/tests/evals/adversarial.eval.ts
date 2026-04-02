@@ -224,6 +224,27 @@ describe('Adversarial Evals', () => {
     scoreAssertion(trace.id, 'max_rounds_respected', toolCalls.length <= 5)
   }, 15000)
 
+  it('A7: delete event with no calendar session active', async () => {
+    const trace = createEvalTrace(CATEGORY, 'A7')
+    mockCtx = mockOpenRouterAndApps({
+      pass1: {
+        tool_calls: [{
+          id: 'tc-a7', type: 'function',
+          function: { name: 'calendar_delete_event', arguments: '{"eventId":"evt-1"}' },
+        }],
+      },
+    })
+
+    const { res } = createMockSSEResponse()
+    await streamChatWithTools(
+      [{ role: 'user', content: 'Delete that event' }],
+      '00000000-0000-0000-0000-00000000a007', 'user-1', res
+    )
+
+    expect(res.end).toHaveBeenCalled()
+    scoreAssertion(trace.id, 'no_crash', true)
+  })
+
   it('A8: SQL injection in tool args', async () => {
     const trace = createEvalTrace(CATEGORY, 'A8')
     mockCtx = mockOpenRouterAndApps({
