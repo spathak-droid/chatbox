@@ -1,5 +1,5 @@
 import { config } from '../config.js'
-import { getAllToolSchemas } from '../apps/registry.js'
+import { getAllToolSchemas, findAppByToolName, getCachedApps } from '../apps/registry.js'
 import { routeToolCall, DESTRUCTIVE_TOOLS } from '../apps/tool-router.js'
 import { getSessionsForConversation } from '../apps/session.js'
 import type { Response } from 'express'
@@ -27,7 +27,7 @@ export async function streamChatWithTools(
     // Detect user intent for context cleaning
     const lastMsg = messages.filter(m => m.role === 'user').pop()?.content?.toLowerCase() || ''
     const intentApp = /chess|play a game|play$|let'?s play/.test(lastMsg) ? 'chess'
-      : /math|practice|problems|addition|algebra|subtract|multiply|divid/.test(lastMsg) ? 'math-practice'
+      : /math|practice|problems|addition|algebra|subtract|multipl|divid/.test(lastMsg) ? 'math-practice'
       : /flash|study|quiz|review|learn about/.test(lastMsg) ? 'flashcards'
       : /calendar|schedule|event|study block|study plan|delete.*event|add.*event|plan.*week/.test(lastMsg) ? 'google-calendar'
       : null
@@ -186,37 +186,41 @@ Math: Read currentIndex, correct, incorrect. Know which problem they're on. If t
       const name = tc.function.name
       // Allow end/finish tools always (cleanup is fine)
       if (name.includes('end_game') || name.includes('finish')) return true
-      // Block start tools that contradict user intent
-      if (name === 'chess_start_game' && !lastUserMsg.match(/chess|play a game|play$/)) {
-        console.log(`[GUARDRAIL] Blocked chess_start_game — user said: "${lastUserMsg.slice(0, 60)}"`)
-        return false
-      }
-      if (name === 'math_start_session' && !lastUserMsg.match(/math|practice|problems|addition|algebra|subtract|multiply|divid/)) {
-        console.log(`[GUARDRAIL] Blocked math_start_session — user said: "${lastUserMsg.slice(0, 60)}"`)
-        return false
-      }
-      if (name === 'flashcards_start_deck' && !lastUserMsg.match(/flash|study|quiz|review|learn/)) {
-        console.log(`[GUARDRAIL] Blocked flashcards_start_deck — user said: "${lastUserMsg.slice(0, 60)}"`)
-        return false
+      // Block start tools that contradict user intent — driven by manifest activationKeywords
+      const isStartTool = name.includes('start')
+      if (isStartTool) {
+        const app = findAppByToolName(name)
+        const keywords = app?.activationKeywords ?? []
+        if (keywords.length > 0) {
+          const pattern = new RegExp(keywords.join('|'), 'i')
+          if (!pattern.test(lastUserMsg)) {
+            console.log(`[GUARDRAIL] Blocked ${name} — user said: "${lastUserMsg.slice(0, 60)}" (keywords: ${keywords.join(', ')})`)
+            return false
+          }
+        }
       }
       return true
     })
 
     // If guardrail removed all start tools but user clearly wants an app, inject the right one
+    // Uses manifest activationKeywords to find the matching app generically
     const hasStartTool = validatedToolCalls.some(tc => tc.function.name.includes('start'))
-    if (!hasStartTool && validatedToolCalls.length > 0) {
+    const hasEndTool = validatedToolCalls.some(tc => tc.function.name.includes('end') || tc.function.name.includes('finish') || tc.function.name.includes('stop'))
+    if (!hasStartTool && !hasEndTool && validatedToolCalls.length > 0) {
       let correctTool: string | null = null
       let correctArgs = '{}'
-      if (lastUserMsg.match(/math|practice math|problems/)) {
-        correctTool = 'math_start_session'
-        correctArgs = '{"topic":"addition","difficulty":"easy"}'
-      } else if (lastUserMsg.match(/flash|study|quiz|review|learn/)) {
-        correctTool = 'flashcards_start_deck'
-        // We can't generate cards here, so let the LLM retry
-        correctTool = null
-      } else if (lastUserMsg.match(/chess|play/)) {
-        correctTool = 'chess_start_game'
-        correctArgs = '{"playerColor":"white"}'
+      for (const app of getCachedApps()) {
+        const keywords = app.activationKeywords ?? []
+        if (keywords.length > 0) {
+          const pattern = new RegExp(keywords.join('|'), 'i')
+          if (pattern.test(lastUserMsg)) {
+            const startTool = app.tools.find(t => t.name.includes('start'))
+            if (startTool) {
+              correctTool = startTool.name
+              break
+            }
+          }
+        }
       }
       if (correctTool) {
         console.log(`[GUARDRAIL] Injecting correct tool: ${correctTool}`)
@@ -460,7 +464,7 @@ function summarizeOldToolCalls(messages: ChatMessage[], recentTurnsRaw: number):
 function scopeToolsToIntent(allTools: any[], userMessage: string): any[] {
   // Detect intent from user message
   const wantsChess = /chess|play a game|play$|let'?s play/.test(userMessage)
-  const wantsMath = /math|practice|problems|addition|algebra|subtract|multiply|divid/.test(userMessage)
+  const wantsMath = /math|practice|problems|addition|algebra|subtract|multipl|divid/.test(userMessage)
   const wantsFlashcards = /flash|study|quiz|review|learn about/.test(userMessage)
   const wantsCalendar = /calendar|schedule|event|study block|study plan|delete.*event|add.*event|plan.*week/.test(userMessage)
 
