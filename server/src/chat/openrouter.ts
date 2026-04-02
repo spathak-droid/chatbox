@@ -3,6 +3,7 @@ import { getAllToolSchemas, findAppByToolName, getCachedApps } from '../apps/reg
 import { routeToolCall, DESTRUCTIVE_TOOLS } from '../apps/tool-router.js'
 import { getSessionsForConversation } from '../apps/session.js'
 import type { Response } from 'express'
+import { langfuse } from '../lib/langfuse.js'
 
 interface ChatMessage {
   role: 'system' | 'user' | 'assistant' | 'tool'
@@ -127,6 +128,11 @@ Math: Read currentIndex, correct, incorrect. Know which problem they're on. If t
     res.flushHeaders()
   }
 
+  const trace = langfuse.trace({
+    name: 'chat',
+    metadata: { conversationId, userId },
+  })
+
   const MAX_TOOL_ROUNDS = 5
   let currentMessages = [...messages]
 
@@ -156,6 +162,15 @@ Math: Read currentIndex, correct, incorrect. Know which problem they're on. If t
     }
 
     const pass1Data = await pass1Response.json()
+    trace.generation({
+      name: 'pass1-tool-proposal',
+      model: config.openrouterModel,
+      input: currentMessages,
+      output: pass1Data,
+      usage: {
+        totalTokens: (pass1Data as any).usage?.total_tokens,
+      },
+    })
     const pass1Choice = pass1Data.choices?.[0]
     const pass1Message = pass1Choice?.message
     const pass1Content = pass1Message?.content || ''
@@ -376,6 +391,11 @@ Math: Read currentIndex, correct, incorrect. Know which problem they're on. If t
     }
   }
 
+  trace.generation({
+    name: 'pass2-text-response',
+    model: config.openrouterModel,
+    input: currentMessages,
+  })
   res.write('data: [DONE]\n\n')
   res.end()
 }
