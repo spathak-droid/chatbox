@@ -6,6 +6,7 @@ node_modules
 out/
 dist/
 release/
+!release/app/package.json
 .vscode/
 .idea/
 *.log

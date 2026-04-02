@@ -8,7 +8,7 @@ COPY release/app/package.json ./release/app/
 RUN pnpm install --frozen-lockfile --ignore-scripts
 
 COPY src/ ./src/
-COPY vite.web.config.ts postcss.config.cjs tailwind.config.js tsconfig.json ./
+COPY vite.web.config.ts postcss.config.js tailwind.config.js tsconfig.json ./
 
 ARG VITE_API_BASE
 ARG VITE_MATH_APP_URL

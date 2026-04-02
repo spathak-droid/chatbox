@@ -35,6 +35,6 @@ export default defineConfig({
     strictPort: true,
   },
   css: {
-    postcss: resolve(__dirname, 'postcss.config.cjs'),
+    postcss: resolve(__dirname, 'postcss.config.js'),
   },
 })
