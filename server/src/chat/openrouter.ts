@@ -24,9 +24,23 @@ export async function streamChatWithTools(
   const sessions = await getSessionsForConversation(conversationId)
   const relevantSessions = sessions.filter((s) => s.status === 'active' || s.status === 'completed' || s.summary)
   if (relevantSessions.length > 0) {
+    // Detect user intent for context cleaning
+    const lastMsg = messages.filter(m => m.role === 'user').pop()?.content?.toLowerCase() || ''
+    const intentApp = /chess|play a game|play$|let'?s play/.test(lastMsg) ? 'chess'
+      : /math|practice|problems|addition|algebra|subtract|multiply|divid/.test(lastMsg) ? 'math-practice'
+      : /flash|study|quiz|review|learn about/.test(lastMsg) ? 'flashcards'
+      : /calendar|schedule|event|study block|study plan|delete.*event|add.*event|plan.*week/.test(lastMsg) ? 'google-calendar'
+      : null
+
+    const activeSession = relevantSessions.find(s => s.status === 'active')
+    const isSwitching = activeSession && intentApp && activeSession.appId !== intentApp
+
     const appContext = relevantSessions
       .map((s) => {
         if (s.status === 'active') {
+          if (isSwitching && s.appId === activeSession.appId) {
+            return `[Switching from ${activeSession.appId} to ${intentApp}. End the old app and start the new one.]`
+          }
           const state = s.state as Record<string, unknown> | null
           if (state?.gameOver) {
             return `[Completed app: ${s.appId} — game is finished. If user wants to play again, call the start tool immediately.]`
