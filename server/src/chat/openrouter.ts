@@ -94,6 +94,17 @@ Math: Read currentIndex, correct, incorrect. Know which problem they're on. If t
     messages.unshift({ role: 'system', content: systemContent })
   }
 
+  // ============ TOOL CALL HISTORY SUMMARIZATION ============
+  // Replace old tool_call/tool_result pairs with plain text summaries
+  // so the LLM doesn't pattern-match on previous tool names
+  const RECENT_TURNS_TO_KEEP_RAW = 2  // keep last 2 turns with full tool messages
+  messages = summarizeOldToolCalls(messages, RECENT_TURNS_TO_KEEP_RAW)
+
+  // ============ DYNAMIC TOOL SCOPING ============
+  // Only send tools relevant to the user's current message
+  const lastUserMessage = messages.filter(m => m.role === 'user').pop()?.content?.toLowerCase() || ''
+  const scopedTools = scopeToolsToIntent(toolSchemas, lastUserMessage)
+
   // Set SSE headers if not already set by the caller
   if (!res.headersSent) {
     res.setHeader('Content-Type', 'text/event-stream')
@@ -116,7 +127,7 @@ Math: Read currentIndex, correct, incorrect. Know which problem they're on. If t
       body: JSON.stringify({
         model: config.openrouterModel,
         messages: currentMessages,
-        tools: toolSchemas.length > 0 ? toolSchemas : undefined,
+        tools: scopedTools.length > 0 ? scopedTools : undefined,
         stream: true,
       }),
     })
@@ -268,4 +279,108 @@ Math: Read currentIndex, correct, incorrect. Know which problem they're on. If t
 
   res.write('data: [DONE]\n\n')
   res.end()
+}
+
+// ============ TOOL HISTORY SUMMARIZATION ============
+// Collapse old tool_call + tool_result message pairs into plain text summaries
+// so the LLM can't pattern-match on previous tool names
+function summarizeOldToolCalls(messages: ChatMessage[], recentTurnsRaw: number): ChatMessage[] {
+  // Find the boundary: keep the last N user messages and everything after them raw
+  let userMsgCount = 0
+  let rawBoundary = messages.length
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i].role === 'user') {
+      userMsgCount++
+      if (userMsgCount >= recentTurnsRaw) {
+        rawBoundary = i
+        break
+      }
+    }
+  }
+
+  const result: ChatMessage[] = []
+
+  let i = 0
+  while (i < messages.length) {
+    const msg = messages[i]
+
+    // Keep recent messages raw
+    if (i >= rawBoundary) {
+      result.push(msg)
+      i++
+      continue
+    }
+
+    // System and user messages pass through
+    if (msg.role === 'system' || msg.role === 'user') {
+      result.push(msg)
+      i++
+      continue
+    }
+
+    // Assistant message with tool_calls → summarize it + subsequent tool results
+    if (msg.role === 'assistant' && msg.tool_calls && msg.tool_calls.length > 0) {
+      const toolNames = msg.tool_calls.map(tc => tc.function.name)
+      let summaryParts: string[] = []
+      if (msg.content) summaryParts.push(msg.content)
+
+      // Consume following tool result messages
+      let j = i + 1
+      while (j < messages.length && messages[j].role === 'tool') {
+        try {
+          const toolResult = JSON.parse(messages[j].content)
+          if (toolResult.summary) {
+            summaryParts.push(toolResult.summary)
+          } else if (toolResult.status === 'ok') {
+            summaryParts.push(`[${toolNames[j - i - 1] || 'tool'} completed successfully]`)
+          } else if (toolResult.error) {
+            summaryParts.push(`[${toolNames[j - i - 1] || 'tool'} failed: ${toolResult.error}]`)
+          }
+        } catch {
+          summaryParts.push('[tool action completed]')
+        }
+        j++
+      }
+
+      // Replace with a single assistant summary message
+      result.push({
+        role: 'assistant',
+        content: summaryParts.join(' '),
+      })
+      i = j
+      continue
+    }
+
+    // Plain assistant message — pass through
+    result.push(msg)
+    i++
+  }
+
+  return result
+}
+
+// ============ DYNAMIC TOOL SCOPING ============
+// Only expose tools relevant to user's current intent
+// The LLM can't call a tool it can't see
+function scopeToolsToIntent(allTools: any[], userMessage: string): any[] {
+  // Detect intent from user message
+  const wantsChess = /chess|play a game|play$|let'?s play/.test(userMessage)
+  const wantsMath = /math|practice|problems|addition|algebra|subtract|multiply|divid/.test(userMessage)
+  const wantsFlashcards = /flash|study|quiz|review|learn about/.test(userMessage)
+  const wantsCalendar = /calendar|schedule|event|study block|study plan|delete.*event|add.*event|plan.*week/.test(userMessage)
+
+  // If no clear intent, send all tools (LLM decides)
+  const hasIntent = wantsChess || wantsMath || wantsFlashcards || wantsCalendar
+  if (!hasIntent) return allTools
+
+  // Filter to matching app tools + always include end/finish tools for cleanup
+  return allTools.filter(tool => {
+    const name = tool.function?.name || ''
+    if (name.includes('end_game') || name.includes('finish')) return true
+    if (wantsChess && name.startsWith('chess_')) return true
+    if (wantsMath && name.startsWith('math_')) return true
+    if (wantsFlashcards && name.startsWith('flashcards_')) return true
+    if (wantsCalendar && name.startsWith('calendar_')) return true
+    return false
+  })
 }

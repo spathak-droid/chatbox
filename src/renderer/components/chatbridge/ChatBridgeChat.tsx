@@ -266,6 +266,13 @@ export function ChatBridgeChat({ token, user, onLogout }: ChatBridgeChatProps) {
                 const iframeUrl = getAppIframeUrl(toolName)
                 const appId = getAppIdFromToolName(toolName)
 
+                // Check for pending confirmation
+                if (event.result?.data?.pendingConfirmation) {
+                  setPendingActions(event.result.data.actions || [])
+                  scrollToBottom()
+                  break
+                }
+
                 if (iframeUrl && appId && event.result && event.result.status !== 'error') {
                   const appSessionId = event.result.appSessionId || event.result.sessionId || `session-${Date.now()}`
                   const sessionState = event.result.data || event.result.state || event.result || {}
@@ -334,6 +341,8 @@ export function ChatBridgeChat({ token, user, onLogout }: ChatBridgeChatProps) {
   }, [input, loading, token, conversationId, scrollToBottom, setActiveApp, loadConversations])
 
   // Track the active app panel (latest iframe from any message)
+  const [pendingActions, setPendingActions] = useState<Array<{ id: string; description: string }>>([])
+
   const [activePanel, setActivePanel] = useState<{
     appId: string
     iframeUrl: string
@@ -426,6 +435,42 @@ export function ChatBridgeChat({ token, user, onLogout }: ChatBridgeChatProps) {
   )
 
   // Sync board state to server so the LLM can see it
+  const confirmActions = useCallback(async () => {
+    if (!conversationId) return
+    try {
+      const res = await fetch(`${API_BASE}/chat/conversations/${conversationId}/confirm-actions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      })
+      if (res.ok) {
+        const data = await res.json()
+        // Add a confirmation message
+        const confirmMsg: ChatMessage = {
+          id: `system-${Date.now()}`,
+          role: 'assistant',
+          content: `Done! ${data.results?.length || 0} action(s) completed.`,
+        }
+        setMessages((prev) => [...prev, confirmMsg])
+      }
+    } catch {}
+    setPendingActions([])
+  }, [conversationId, token])
+
+  const cancelActions = useCallback(async () => {
+    if (!conversationId) return
+    await fetch(`${API_BASE}/chat/conversations/${conversationId}/cancel-actions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    }).catch(() => {})
+    setPendingActions([])
+    const cancelMsg: ChatMessage = {
+      id: `system-${Date.now()}`,
+      role: 'assistant',
+      content: 'Cancelled — no changes were made.',
+    }
+    setMessages((prev) => [...prev, cancelMsg])
+  }, [conversationId, token])
+
   const handleStateChange = useCallback(
     (state: Record<string, unknown>) => {
       if (!conversationId || !activePanel) return
@@ -566,6 +611,41 @@ export function ChatBridgeChat({ token, user, onLogout }: ChatBridgeChatProps) {
             </Button>
           ))}
         </Group>
+
+        {/* Pending confirmation card */}
+        {pendingActions.length > 0 && (
+          <Paper
+            p="md"
+            mx="md"
+            mb="xs"
+            radius="md"
+            style={{
+              background: 'var(--mantine-color-dark-6)',
+              border: '1px solid var(--mantine-color-yellow-8)',
+              flex: '0 0 auto',
+            }}
+          >
+            <Text size="sm" fw={600} c="yellow" mb="xs">
+              Confirm these changes to your calendar:
+            </Text>
+            <Stack gap={4} mb="sm">
+              {pendingActions.map((a) => (
+                <Text key={a.id} size="sm" c="dimmed">
+                  {a.description.includes('Delete') ? '\u274C' : a.description.includes('Update') ? '\u270F\uFE0F' : '\u2795'}{' '}
+                  {a.description}
+                </Text>
+              ))}
+            </Stack>
+            <Group gap="xs">
+              <Button size="xs" color="green" onClick={confirmActions}>
+                Confirm
+              </Button>
+              <Button size="xs" variant="subtle" color="gray" onClick={cancelActions}>
+                Cancel
+              </Button>
+            </Group>
+          </Paper>
+        )}
 
         {/* Input */}
         <Box

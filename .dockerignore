@@ -1,0 +1,16 @@
+node_modules
+.git
+*.md
+.env
+.env.*
+out/
+dist/
+release/
+.vscode/
+.idea/
+*.log
+team-sharing/
+docs/
+tests/
+**/*.test.ts
+**/*.spec.ts

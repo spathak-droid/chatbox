@@ -1,0 +1,10 @@
+FROM node:20-alpine
+WORKDIR /app
+
+COPY apps/flashcards/package.json ./
+RUN npm install
+
+COPY apps/flashcards/ ./
+
+EXPOSE 3004
+CMD ["npx", "tsx", "server/index.ts"]

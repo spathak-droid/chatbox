@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { requireAuth } from '../auth/middleware.js'
 import { query } from '../db/client.js'
 import { streamChatWithTools } from './openrouter.js'
+import { getPendingActions, executePendingActions, clearPendingActions } from '../apps/tool-router.js'
 import { getSessionsForConversation } from '../apps/session.js'
 
 export const chatRoutes = Router()
@@ -99,6 +100,32 @@ chatRoutes.post('/conversations/:id/sync-app-state', async (req, res, next) => {
   } catch (err) {
     next(err)
   }
+})
+
+// Get pending actions for a conversation
+chatRoutes.get('/conversations/:id/pending-actions', requireAuth, (req, res) => {
+  const actions = getPendingActions(req.params.id)
+  res.json({ actions })
+})
+
+// Confirm and execute pending actions
+chatRoutes.post('/conversations/:id/confirm-actions', requireAuth, async (req, res, next) => {
+  try {
+    const authToken = (req.headers.authorization || '').replace('Bearer ', '')
+    const results = await executePendingActions(req.params.id, {
+      userId: req.user!.id,
+      authToken,
+    })
+    res.json({ ok: true, results })
+  } catch (err) {
+    next(err)
+  }
+})
+
+// Cancel pending actions
+chatRoutes.post('/conversations/:id/cancel-actions', requireAuth, (req, res) => {
+  clearPendingActions(req.params.id)
+  res.json({ ok: true })
 })
 
 chatRoutes.get('/conversations/:id/messages', async (req, res, next) => {

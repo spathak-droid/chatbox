@@ -1,0 +1,10 @@
+FROM node:20-alpine
+WORKDIR /app
+
+COPY apps/chess/package.json ./
+RUN npm install
+
+COPY apps/chess/ ./
+
+EXPOSE 3003
+CMD ["npx", "tsx", "server/index.ts"]

@@ -6,11 +6,77 @@ import { getOAuthConnection } from './oauth-manager.js'
 
 const TOOL_TIMEOUT_MS = 15000
 
+// Tools that modify external user data need confirmation
+const DESTRUCTIVE_TOOLS = new Set([
+  'calendar_delete_event',
+  'calendar_update_event',
+  'calendar_create_study_plan',
+])
+
+// Pending confirmations stored in memory (keyed by conversation)
+const pendingActions = new Map<string, Array<{
+  id: string
+  toolName: string
+  args: Record<string, unknown>
+  description: string
+}>>()
+
+export function getPendingActions(conversationId: string) {
+  return pendingActions.get(conversationId) || []
+}
+
+export function clearPendingActions(conversationId: string) {
+  pendingActions.delete(conversationId)
+}
+
+export async function executePendingActions(
+  conversationId: string,
+  context: { userId: string; authToken?: string }
+): Promise<AppResultEnvelope[]> {
+  const actions = pendingActions.get(conversationId)
+  if (!actions || actions.length === 0) {
+    return [{ status: 'error', error: 'No pending actions to confirm.' }]
+  }
+
+  const results: AppResultEnvelope[] = []
+  for (const action of actions) {
+    const result = await routeToolCall(action.toolName, action.args, {
+      ...context,
+      conversationId,
+      _skipConfirmation: true,
+    })
+    results.push(result)
+  }
+
+  pendingActions.delete(conversationId)
+  return results
+}
+
 export async function routeToolCall(
   toolName: string,
   args: Record<string, unknown>,
-  context: { userId: string; conversationId: string; authToken?: string }
+  context: { userId: string; conversationId: string; authToken?: string; _skipConfirmation?: boolean }
 ): Promise<AppResultEnvelope> {
+  // Intercept destructive tools — require confirmation
+  if (DESTRUCTIVE_TOOLS.has(toolName) && !context._skipConfirmation) {
+    const description = describeAction(toolName, args)
+    const existing = pendingActions.get(context.conversationId) || []
+    existing.push({
+      id: `action-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      toolName,
+      args,
+      description,
+    })
+    pendingActions.set(context.conversationId, existing)
+
+    return {
+      status: 'pending' as any,
+      data: { pendingConfirmation: true, actions: existing.map(a => ({ id: a.id, description: a.description })) },
+      summary: `Action queued for confirmation: ${description}. Waiting for user to confirm.`,
+      appSessionId: '',
+    }
+  }
+
   const app = findAppByToolName(toolName)
   if (!app) {
     return { status: 'error', error: `No app found for tool: ${toolName}` }
@@ -87,5 +153,24 @@ export async function routeToolCall(
     )
 
     return { status: 'error', error: status === 'timeout' ? `Tool ${toolName} timed out after ${TOOL_TIMEOUT_MS}ms` : errorMsg }
+  }
+}
+
+function describeAction(toolName: string, args: Record<string, unknown>): string {
+  switch (toolName) {
+    case 'calendar_delete_event':
+      return `Delete event (ID: ${args.eventId || 'unknown'})`
+    case 'calendar_update_event': {
+      const parts = []
+      if (args.summary) parts.push(`rename to "${args.summary}"`)
+      if (args.startTime) parts.push(`move to ${args.startTime}`)
+      return `Update event (ID: ${args.eventId || 'unknown'})${parts.length ? ': ' + parts.join(', ') : ''}`
+    }
+    case 'calendar_create_study_plan': {
+      const blocks = args.blocks as any[] || []
+      return `Create ${blocks.length} study blocks on your calendar`
+    }
+    default:
+      return `${toolName} with ${JSON.stringify(args)}`
   }
 }

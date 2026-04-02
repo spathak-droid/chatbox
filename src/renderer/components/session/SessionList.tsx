@@ -130,31 +130,28 @@ export default function SessionList(props: Props) {
                   />
                 </SortableItem>
               )}
-              components={{
-                Footer: () => (
-                  <NavLink
-                    c="chatbox-secondary"
-                    className="rounded"
-                    mx="xs"
-                    my={4}
-                    label="TutorMeAI"
-                    leftSection={<span style={{ fontSize: 18, width: 20, textAlign: 'center' }}>🎓</span>}
-                    active={routerState.location.pathname === '/chatbridge'}
-                    onClick={() => {
-                      navigate({ to: '/chatbridge' })
-                      if (isSmallScreen) {
-                        setShowSidebar(false)
-                      }
-                    }}
-                    variant="light"
-                    p="xs"
-                  />
-                ),
-              }}
             />
           </SortableContext>
         )}
       </DndContext>
+
+      <NavLink
+        c="chatbox-secondary"
+        className="rounded"
+        mx="xs"
+        mt={4}
+        label="TutorMeAI"
+        leftSection={<span style={{ fontSize: 18, width: 20, textAlign: 'center' }}>🎓</span>}
+        active={routerState.location.pathname === '/chatbridge'}
+        onClick={() => {
+          navigate({ to: '/chatbridge' })
+          if (isSmallScreen) {
+            setShowSidebar(false)
+          }
+        }}
+        variant="light"
+        p="xs"
+      />
     </>
   )
 }

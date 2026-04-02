@@ -1,0 +1,10 @@
+FROM node:20-alpine
+WORKDIR /app
+
+COPY apps/google-calendar/package.json ./
+RUN npm install
+
+COPY apps/google-calendar/ ./
+
+EXPOSE 3002
+CMD ["npx", "tsx", "server/index.ts"]
