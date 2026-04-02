@@ -305,6 +305,21 @@ export default function Sidebar() {
               <NavLink
                 c="chatbox-secondary"
                 className="rounded"
+                label="TutorMeAI"
+                leftSection={<span style={{ fontSize: 18, width: 20, textAlign: 'center' }}>🎓</span>}
+                onClick={() => {
+                  navigate({ to: '/chatbridge' })
+                  if (isSmallScreen) {
+                    setShowSidebar(false)
+                  }
+                }}
+                variant="light"
+                p="xs"
+              />
+              <Divider spacing="xs" />
+              <NavLink
+                c="chatbox-secondary"
+                className="rounded"
                 label={t('My Copilots')}
                 leftSection={<ScalableIcon icon={IconMessageChatbot} size={20} />}
                 onClick={() => {

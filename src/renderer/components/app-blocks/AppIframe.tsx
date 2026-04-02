@@ -8,6 +8,9 @@ interface AppIframeProps {
   appSessionId: string
   onComplete?: (result: Record<string, unknown>) => void
   onToolRequest?: (request: { tool: string; args: Record<string, unknown> }) => void
+  onGameOver?: (result: { won: boolean; result?: string }) => void
+  onStateChange?: (state: Record<string, unknown>) => void
+  fillHeight?: boolean
 }
 
 export function AppIframe({
@@ -17,6 +20,9 @@ export function AppIframe({
   appSessionId,
   onComplete,
   onToolRequest,
+  onGameOver,
+  onStateChange,
+  fillHeight,
 }: AppIframeProps) {
   const iframeRef = useRef<HTMLIFrameElement>(null)
   const [loading, setLoading] = useState(true)
@@ -67,6 +73,34 @@ export function AppIframe({
         }
         case 'app.state_patch': {
           // App sent a state update
+          const patchState = msg.state || msg.patch
+          if (patchState) {
+            onStateChange?.(patchState)
+            // Chess win
+            if (patchState.gameOver && patchState.result) {
+              const resultStr = String(patchState.result).toLowerCase()
+              const won = resultStr.includes('white wins')
+              onGameOver?.({ won, result: patchState.result })
+            }
+            // Math or Flashcards session complete
+            if (patchState.finished) {
+              onGameOver?.({ won: true, result: 'session_complete' })
+            }
+          }
+          break
+        }
+        case 'app.game_over': {
+          // Explicit game over notification from app
+          if (msg.result) {
+            const resultStr = String(msg.result).toLowerCase()
+            const won = resultStr.includes('white wins')
+            onGameOver?.({ won, result: msg.result })
+          }
+          break
+        }
+        case 'app.complete': {
+          // App session completed (flashcards, math)
+          onGameOver?.({ won: true, result: msg.summary || 'complete' })
           break
         }
         case 'app.error': {
@@ -91,7 +125,7 @@ export function AppIframe({
   }, [sessionState])
 
   return (
-    <Paper withBorder radius="md" p={0} style={{ overflow: 'hidden', position: 'relative' }}>
+    <Paper withBorder radius="md" p={0} style={{ overflow: 'hidden', position: 'relative', height: fillHeight ? '100%' : 'auto', display: fillHeight ? 'flex' : 'block', flexDirection: 'column' }}>
       {loading && (
         <Box
           style={{
@@ -120,7 +154,8 @@ export function AppIframe({
         sandbox="allow-scripts allow-popups allow-same-origin"
         style={{
           width: '100%',
-          height: iframeHeight,
+          height: fillHeight ? '100%' : iframeHeight,
+          flex: fillHeight ? 1 : undefined,
           border: 'none',
           display: 'block',
         }}

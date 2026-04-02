@@ -480,6 +480,25 @@
       sendResize()
     }
 
+    function syncToParent() {
+      sendToHost({ type: 'app.state_patch', state })
+    }
+
+    async function callTool(toolName, args = {}) {
+      try {
+        const res = await fetch(`/api/tools/${toolName}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ args, sessionState: state }),
+        })
+        const result = await res.json()
+        handleToolResult(toolName, result)
+        syncToParent()
+      } catch (err) {
+        console.error('Tool call failed:', err)
+      }
+    }
+
     function flipCard() {
       if (state.revealed) return
 
@@ -488,12 +507,7 @@
       flipRow.classList.add('hidden')
       actionRow.classList.remove('hidden')
 
-      sendToHost({
-        type: 'app.tool_request',
-        toolName: 'flashcards_reveal_card',
-        args: {},
-      })
-
+      callTool('flashcards_reveal_card')
       sendResize()
     }
 
@@ -506,19 +520,11 @@
     }
 
     function markKnown() {
-      sendToHost({
-        type: 'app.tool_request',
-        toolName: 'flashcards_mark_known',
-        args: {},
-      })
+      callTool('flashcards_mark_known')
     }
 
     function markUnknown() {
-      sendToHost({
-        type: 'app.tool_request',
-        toolName: 'flashcards_mark_unknown',
-        args: {},
-      })
+      callTool('flashcards_mark_unknown')
     }
 
     function renderSummary() {

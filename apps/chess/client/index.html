@@ -8,34 +8,32 @@
   * { margin: 0; padding: 0; box-sizing: border-box; }
 
   body {
-    background: #1a1a2e;
+    background: #302e2b;
     color: #e0e0e0;
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     display: flex;
     flex-direction: column;
     align-items: center;
-    padding: 12px;
-    min-height: 100vh;
+    padding: 8px;
   }
 
   #status {
-    font-size: 16px;
+    font-size: 15px;
     font-weight: 600;
-    margin-bottom: 8px;
+    margin-bottom: 6px;
     text-align: center;
-    min-height: 24px;
+    min-height: 22px;
   }
-
-  #status.error {
-    color: #ff6b6b;
-  }
+  #status.error { color: #ff6b6b; }
+  #status.thinking { color: #f0c040; }
 
   #board {
     display: grid;
     grid-template-columns: repeat(8, 1fr);
-    width: min(90vw, 400px);
-    height: min(90vw, 400px);
-    border: 2px solid #444;
+    grid-template-rows: repeat(8, 1fr);
+    width: min(88vw, 380px);
+    aspect-ratio: 1;
+    border: 2px solid #555;
     border-radius: 4px;
     overflow: hidden;
   }
@@ -44,53 +42,88 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: min(10vw, 42px);
     cursor: pointer;
     user-select: none;
     position: relative;
+    width: 100%;
+    height: 100%;
   }
 
-  .square.light { background: #f0d9b5; }
-  .square.dark { background: #b58863; }
-  .square.selected { outline: 3px solid #ffd700; outline-offset: -3px; z-index: 1; }
-  .square.last-move { background: rgba(255, 255, 0, 0.3); }
+  /* Chess.com colors */
+  .square.light { background: #eeeed2; }
+  .square.dark { background: #769656; }
+  .square.selected.light { background: #f6f669; }
+  .square.selected.dark { background: #baca2b; }
+  .square.last-move.light { background: #f6f669; }
+  .square.last-move.dark { background: #baca2b; }
+
+  /* Legal move dot on empty square */
   .square.legal-target::after {
     content: '';
     position: absolute;
-    width: 30%;
-    height: 30%;
+    width: 26%;
+    height: 26%;
     border-radius: 50%;
-    background: rgba(0, 0, 0, 0.2);
+    background: rgba(0, 0, 0, 0.18);
+    pointer-events: none;
   }
+  /* Legal capture ring on occupied square */
   .square.legal-capture::after {
     content: '';
     position: absolute;
-    width: 90%;
-    height: 90%;
+    width: 88%;
+    height: 88%;
     border-radius: 50%;
-    border: 4px solid rgba(0, 0, 0, 0.2);
+    border: 4px solid rgba(0, 0, 0, 0.18);
     background: transparent;
+    pointer-events: none;
+  }
+
+  /* Piece styling */
+  .piece {
+    font-size: min(9vw, 40px);
+    line-height: 1;
+    text-align: center;
+    pointer-events: none;
+  }
+  .piece.white {
+    color: #fff;
+    text-shadow:
+      -1px -1px 0 #000,
+       1px -1px 0 #000,
+      -1px  1px 0 #000,
+       1px  1px 0 #000,
+       0   -1px 0 #000,
+       0    1px 0 #000,
+      -1px  0   0 #000,
+       1px  0   0 #000;
+  }
+  .piece.black {
+    color: #312e2b;
+    text-shadow:
+      -1px -1px 0 #999,
+       1px -1px 0 #999,
+      -1px  1px 0 #999,
+       1px  1px 0 #999,
+       0   -1px 0 #999,
+       0    1px 0 #999,
+      -1px  0   0 #999,
+       1px  0   0 #999;
   }
 
   #moves-panel {
-    margin-top: 10px;
-    width: min(90vw, 400px);
-    max-height: 120px;
+    margin-top: 6px;
+    width: min(88vw, 380px);
+    max-height: 80px;
     overflow-y: auto;
-    font-size: 13px;
+    font-size: 12px;
     color: #aaa;
-    line-height: 1.6;
+    line-height: 1.5;
     text-align: center;
     word-wrap: break-word;
   }
-
-  #moves-panel span {
-    margin: 0 2px;
-  }
-
-  #moves-panel .move-num {
-    color: #666;
-  }
+  #moves-panel span { margin: 0 2px; }
+  #moves-panel .move-num { color: #666; }
 </style>
 </head>
 <body>
@@ -100,14 +133,14 @@
 
 <script>
 // ============ STATE ============
-let gameState = null   // { fen, moves, playerColor, gameOver, result }
-let selected = null    // { row, col, piece, square }
+let gameState = null
+let selected = null
+let legalTargets = []  // squares the selected piece can move to
 let lastMoveFrom = null
 let lastMoveTo = null
-let errorTimeout = null
+let sending = false
 
-// ============ PIECE MAP ============
-const UNICODE_PIECES = {
+const PIECES = {
   K: '\u2654', Q: '\u2655', R: '\u2656', B: '\u2657', N: '\u2658', P: '\u2659',
   k: '\u265A', q: '\u265B', r: '\u265C', b: '\u265D', n: '\u265E', p: '\u265F',
 }
@@ -130,11 +163,8 @@ function parseFen(fen) {
   return board
 }
 
-function getTurn(fen) {
-  return fen.split(' ')[1] || 'w'
-}
+function getTurn(fen) { return fen.split(' ')[1] || 'w' }
 
-// ============ SQUARE NOTATION ============
 function toAlgebraic(row, col, flipped) {
   const r = flipped ? row : 7 - row
   const c = flipped ? 7 - col : col
@@ -143,13 +173,29 @@ function toAlgebraic(row, col, flipped) {
 
 function isOwnPiece(piece, playerColor) {
   if (!piece) return false
-  if (playerColor === 'white') return piece === piece.toUpperCase()
-  return piece === piece.toLowerCase()
+  return playerColor === 'white' ? piece === piece.toUpperCase() : piece === piece.toLowerCase()
 }
+
+function isWhitePiece(piece) { return piece === piece.toUpperCase() }
 
 function isPlayerTurn(fen, playerColor) {
   const turn = getTurn(fen)
   return (turn === 'w' && playerColor === 'white') || (turn === 'b' && playerColor === 'black')
+}
+
+// ============ FETCH LEGAL MOVES ============
+async function fetchLegalMoves(square) {
+  try {
+    const res = await fetch('/api/legal-moves', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fen: gameState.fen, square }),
+    })
+    const data = await res.json()
+    return data.moves || []
+  } catch {
+    return []
+  }
 }
 
 // ============ RENDERING ============
@@ -161,6 +207,7 @@ function render() {
   if (!gameState) {
     boardEl.innerHTML = ''
     statusEl.textContent = 'Waiting for game...'
+    statusEl.className = ''
     movesEl.innerHTML = ''
     return
   }
@@ -170,19 +217,23 @@ function render() {
   const flipped = playerColor === 'black'
   const myTurn = isPlayerTurn(fen, playerColor)
 
-  // Status
   if (gameOver) {
-    statusEl.textContent = `Game Over: ${result || 'ended'}`
+    statusEl.textContent = result || 'Game Over'
     statusEl.className = ''
-  } else if (myTurn) {
-    statusEl.textContent = 'Your turn'
-    statusEl.className = ''
+  } else if (sending) {
+    statusEl.textContent = 'Making move...'
+    statusEl.className = 'thinking'
+  } else if (!myTurn) {
+    statusEl.textContent = "Opponent is thinking..."
+    statusEl.className = 'thinking'
   } else {
-    statusEl.textContent = "Opponent's turn"
+    statusEl.textContent = 'Your turn — tap a piece to move'
     statusEl.className = ''
   }
 
-  // Board
+  // Build a set of legal target squares for quick lookup
+  const legalSet = new Set(legalTargets)
+
   boardEl.innerHTML = ''
   for (let displayRow = 0; displayRow < 8; displayRow++) {
     for (let displayCol = 0; displayCol < 8; displayCol++) {
@@ -194,23 +245,26 @@ function render() {
 
       const el = document.createElement('div')
       el.className = `square ${isLight ? 'light' : 'dark'}`
-      el.dataset.row = String(displayRow)
-      el.dataset.col = String(displayCol)
-      el.dataset.square = sq
+
+      if (selected && selected.square === sq) {
+        el.classList.add('selected')
+      }
 
       // Last move highlight
       if (sq === lastMoveFrom || sq === lastMoveTo) {
         el.classList.add('last-move')
       }
 
-      // Selected highlight
-      if (selected && selected.square === sq) {
-        el.classList.add('selected')
+      // Legal move indicators
+      if (legalSet.has(sq)) {
+        el.classList.add(piece ? 'legal-capture' : 'legal-target')
       }
 
-      // Piece
       if (piece) {
-        el.textContent = UNICODE_PIECES[piece] || ''
+        const span = document.createElement('span')
+        span.className = `piece ${isWhitePiece(piece) ? 'white' : 'black'}`
+        span.textContent = PIECES[piece] || ''
+        el.appendChild(span)
       }
 
       el.addEventListener('click', () => onSquareClick(displayRow, displayCol, piece, sq))
@@ -238,50 +292,155 @@ function render() {
     }
   }
   movesEl.scrollTop = movesEl.scrollHeight
-
   sendResize()
 }
 
 // ============ INTERACTION ============
-function onSquareClick(displayRow, displayCol, piece, sq) {
-  if (!gameState || gameState.gameOver) return
+async function onSquareClick(displayRow, displayCol, piece, sq) {
+  if (!gameState || gameState.gameOver || sending) return
   if (!isPlayerTurn(gameState.fen, gameState.playerColor)) return
 
   if (selected) {
     if (selected.square === sq) {
-      // Deselect
       selected = null
+      legalTargets = []
       render()
       return
     }
 
     if (piece && isOwnPiece(piece, gameState.playerColor)) {
-      // Select different own piece
       selected = { row: displayRow, col: displayCol, piece, square: sq }
+      legalTargets = await fetchLegalMoves(sq)
       render()
       return
     }
 
-    // Attempt move in UCI format
+    // Attempt move
     const uci = selected.square + sq
-    sendMove(uci)
     selected = null
+    legalTargets = []
+    sendMove(uci)
     return
   }
 
   // Select own piece
   if (piece && isOwnPiece(piece, gameState.playerColor)) {
     selected = { row: displayRow, col: displayCol, piece, square: sq }
+    legalTargets = await fetchLegalMoves(sq)
     render()
   }
 }
 
-function sendMove(uci) {
+// ============ DIRECT API CALLS ============
+async function sendMove(uci) {
+  if (sending) return
+  sending = true
+  lastMoveFrom = uci.slice(0, 2)
+  lastMoveTo = uci.slice(2, 4)
+  render()
+
+  try {
+    const response = await fetch('/api/tools/chess_submit_move', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        args: { move: uci },
+        sessionState: gameState,
+      }),
+    })
+
+    const result = await response.json()
+
+    if (result.error || result.status === 'error') {
+      showError(result.error || 'Invalid move')
+      lastMoveFrom = null
+      lastMoveTo = null
+      sending = false
+      render()
+      return
+    }
+
+    if (result.data) {
+      gameState = {
+        fen: result.data.fen,
+        moves: result.data.moves || gameState.moves,
+        playerColor: result.data.playerColor || gameState.playerColor,
+        gameOver: result.data.gameOver || false,
+        result: result.data.result,
+      }
+    }
+
+    sending = false
+    render()
+    notifyParent()
+
+    // After 1 second, make opponent move (if game not over)
+    if (gameState && !gameState.gameOver && !isPlayerTurn(gameState.fen, gameState.playerColor)) {
+      setTimeout(() => fetchAiMove(), 1000)
+    }
+
+  } catch (err) {
+    showError('Connection error')
+    sending = false
+    render()
+  }
+}
+
+async function fetchAiMove() {
+  if (!gameState || gameState.gameOver) return
+  sending = true
+  render()
+
+  try {
+    const response = await fetch('/api/ai-move', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sessionState: gameState }),
+    })
+
+    const result = await response.json()
+
+    if (result.data) {
+      // Figure out opponent's last move for highlighting
+      const newMoves = result.data.moves || []
+      const oldMoves = gameState.moves || []
+      if (newMoves.length > oldMoves.length) {
+        // Can't easily get from/to from SAN, just clear highlights
+        lastMoveFrom = null
+        lastMoveTo = null
+      }
+
+      gameState = {
+        fen: result.data.fen,
+        moves: result.data.moves || gameState.moves,
+        playerColor: result.data.playerColor || gameState.playerColor,
+        gameOver: result.data.gameOver || false,
+        result: result.data.result,
+      }
+    }
+  } catch (err) {
+    showError('Opponent error')
+  }
+
+  sending = false
+  render()
+  notifyParent()
+}
+
+function notifyParent() {
+  if (!gameState) return
   window.parent.postMessage({
-    type: 'app.tool_request',
-    tool: 'chess_submit_move',
-    args: { move: uci },
+    type: 'app.state_patch',
+    state: gameState,
   }, '*')
+  if (gameState.gameOver) {
+    window.parent.postMessage({
+      type: 'app.game_over',
+      gameOver: true,
+      result: gameState.result,
+      playerColor: gameState.playerColor,
+    }, '*')
+  }
 }
 
 // ============ ERROR DISPLAY ============
@@ -289,16 +448,12 @@ function showError(msg) {
   const statusEl = document.getElementById('status')
   statusEl.textContent = msg
   statusEl.className = 'error'
-  if (errorTimeout) clearTimeout(errorTimeout)
-  errorTimeout = setTimeout(() => {
-    if (gameState) render()
-  }, 3000)
+  setTimeout(() => { if (gameState) render() }, 2500)
 }
 
 // ============ POSTMESSAGE BRIDGE ============
 function sendResize() {
-  const height = document.body.scrollHeight
-  window.parent.postMessage({ type: 'app.resize', height }, '*')
+  window.parent.postMessage({ type: 'app.resize', height: document.body.scrollHeight }, '*')
 }
 
 window.addEventListener('message', (event) => {
@@ -307,7 +462,6 @@ window.addEventListener('message', (event) => {
 
   switch (msg.type) {
     case 'host.init': {
-      // Initial state from host — handle both nested and flat formats
       const state = msg.state?.chess || (msg.state?.fen ? msg.state : null)
       if (state) {
         gameState = state
@@ -315,51 +469,12 @@ window.addEventListener('message', (event) => {
       }
       break
     }
-
     case 'host.state_patch': {
-      // State update — handle both nested and flat formats
       const patch = msg.patch || msg.state_patch
-      if (patch?.chess !== undefined) {
-        gameState = patch.chess
-      } else if (patch?.fen) {
-        gameState = patch
-      }
+      if (patch?.chess !== undefined) gameState = patch.chess
+      else if (patch?.fen) gameState = patch
       selected = null
-      render()
-      break
-    }
-
-    case 'host.tool_result': {
-      const { data, error, state_patch } = msg
-
-      if (error) {
-        showError(error)
-        return
-      }
-
-      if (state_patch?.chess !== undefined) {
-        gameState = state_patch.chess
-      } else if (data) {
-        // Update from data if no state_patch
-        if (data.fen && gameState) {
-          gameState = {
-            ...gameState,
-            fen: data.fen,
-            moves: data.moves || gameState.moves,
-            gameOver: data.gameOver || false,
-            result: data.result,
-          }
-        }
-      }
-
-      // Track last move for highlighting
-      if (data?.lastMove && gameState) {
-        // We'd need to parse SAN to get squares - skip for now, clear
-        lastMoveFrom = null
-        lastMoveTo = null
-      }
-
-      selected = null
+      legalTargets = []
       render()
       break
     }

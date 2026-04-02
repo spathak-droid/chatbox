@@ -497,24 +497,45 @@
       sendResize()
     }
 
-    function submitAnswer() {
+    function syncToParent() {
+      sendToHost({ type: 'app.state_patch', state })
+    }
+
+    async function submitAnswer() {
       const value = answerInput.value.trim()
       if (value === '') return
 
       submitBtn.disabled = true
-      sendToHost({
-        type: 'app.tool_request',
-        toolName: 'math_submit_answer',
-        args: { answer: Number(value) },
-      })
+
+      try {
+        const res = await fetch('/api/tools/math_submit_answer', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ args: { answer: Number(value) }, sessionState: state }),
+        })
+        const result = await res.json()
+        handleToolResult('math_submit_answer', result)
+        // Sync AFTER state is updated by handleToolResult
+        syncToParent()
+      } catch {
+        showFeedback('Connection error', 'incorrect')
+        submitBtn.disabled = false
+      }
     }
 
-    function requestHint() {
-      sendToHost({
-        type: 'app.tool_request',
-        toolName: 'math_get_hint',
-        args: {},
-      })
+    async function requestHint() {
+      try {
+        const res = await fetch('/api/tools/math_get_hint', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ args: {}, sessionState: state }),
+        })
+        const result = await res.json()
+        handleToolResult('math_get_hint', result)
+        syncToParent()
+      } catch {
+        showFeedback('Connection error', 'incorrect')
+      }
     }
 
     function showFeedback(text, type) {

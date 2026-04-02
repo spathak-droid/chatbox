@@ -14,7 +14,7 @@ export const manifest: AppManifest = {
   tools: [
     {
       name: 'flashcards_start_deck',
-      description: 'Start a new flashcard deck with a topic and array of cards (front/back pairs). The AI generates the card content.',
+      description: 'Start a new flashcard study session. Call this when the user wants to study, learn, review, or use flashcards on ANY topic. You MUST generate 5-10 cards with front (question) and back (answer). Do NOT call chess or math tools when the user wants flashcards.',
       parameters: [
         {
           name: 'topic',
@@ -47,7 +47,7 @@ export const manifest: AppManifest = {
     },
     {
       name: 'flashcards_finish_deck',
-      description: 'Finish the current deck early and get a summary with accuracy and cards to review.',
+      description: 'End the current flashcard session. Call when user wants to stop studying or switch to a different app.',
       parameters: [],
     },
   ],

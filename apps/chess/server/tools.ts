@@ -1,4 +1,4 @@
-import { newGame, makeMove, getHint, isCheck, type ChessState } from './engine.js'
+import { newGame, makeMove, makeAiMove, getHint, isCheck, type ChessState } from './engine.js'
 
 interface AppResultEnvelope {
   status: 'ok' | 'error' | 'pending'

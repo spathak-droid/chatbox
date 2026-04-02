@@ -12,7 +12,7 @@ export const manifest = {
   tools: [
     {
       name: 'chess_start_game',
-      description: 'Start a new chess game. Returns the initial board position.',
+      description: 'Start a new chess game. ONLY call this when the user wants to play chess. Do NOT call for math, flashcards, or any other app.',
       parameters: [
         { name: 'playerColor', type: 'string' as const, description: 'Color the player wants to play as. Defaults to white.', required: false, enum: ['white', 'black'] },
       ],
@@ -31,7 +31,7 @@ export const manifest = {
     },
     {
       name: 'chess_end_game',
-      description: 'End the current chess game.',
+      description: 'End the current chess game. Call this when the user wants to stop playing chess or switch to a different app.',
       parameters: [],
     },
   ],

@@ -14,20 +14,20 @@ export const manifest: AppManifest = {
   tools: [
     {
       name: 'math_start_session',
-      description: 'Start a new math practice session with a chosen topic and difficulty.',
+      description: 'Start a math practice session. Call this when the user wants to practice math, do math problems, or work on arithmetic/algebra. Do NOT call chess or flashcard tools when the user wants math.',
       parameters: [
         {
           name: 'topic',
           type: 'string',
-          description: 'Math topic to practice',
-          required: true,
+          description: 'Math topic to practice. Defaults to addition if not specified. Pick one based on what the student asks for.',
+          required: false,
           enum: ['addition', 'subtraction', 'multiplication', 'division', 'algebra'],
         },
         {
           name: 'difficulty',
           type: 'string',
-          description: 'Difficulty level',
-          required: true,
+          description: 'Difficulty level. Defaults to easy if not specified.',
+          required: false,
           enum: ['easy', 'medium', 'hard'],
         },
         {

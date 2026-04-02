@@ -6,6 +6,7 @@ export const AppResultEnvelopeSchema = z.object({
   summary: z.string().optional(),
   uiUrl: z.string().optional(),
   error: z.string().optional(),
+  appSessionId: z.string().optional(),
 })
 
 export const AppSessionSchema = z.object({

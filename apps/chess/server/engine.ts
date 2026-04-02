@@ -102,3 +102,28 @@ export function isCheck(fen: string): boolean {
   const game = new Chess(fen)
   return game.isCheck()
 }
+
+export function getLegalMovesFrom(fen: string, square: string): string[] {
+  const game = new Chess(fen)
+  const moves = game.moves({ square: square as any, verbose: true })
+  return moves.map(m => m.to)
+}
+
+export function makeAiMove(state: ChessState): { state: ChessState; error?: string } {
+  const game = new Chess(state.fen)
+  const moves = game.moves()
+  if (moves.length === 0) return { state }
+
+  // Pick a reasonable move: prioritize captures/checks, then random
+  const captureMoves = moves.filter(m => m.includes('x'))
+  const checkMoves = moves.filter(m => m.includes('+'))
+  const centerMoves = moves.filter(m => m.includes('d4') || m.includes('d5') || m.includes('e4') || m.includes('e5'))
+
+  let pool = checkMoves.length > 0 ? checkMoves
+    : captureMoves.length > 0 ? captureMoves
+    : centerMoves.length > 0 ? centerMoves
+    : moves
+
+  const chosen = pool[Math.floor(Math.random() * pool.length)]
+  return makeMove(state, chosen)
+}

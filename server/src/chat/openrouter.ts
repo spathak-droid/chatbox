@@ -21,12 +21,20 @@ export async function streamChatWithTools(
 
   // Inject app context from active sessions
   const sessions = await getSessionsForConversation(conversationId)
-  const activeSessions = sessions.filter((s) => s.status === 'active' || s.summary)
-  if (activeSessions.length > 0) {
-    const appContext = activeSessions
+  const relevantSessions = sessions.filter((s) => s.status === 'active' || s.status === 'completed' || s.summary)
+  if (relevantSessions.length > 0) {
+    const appContext = relevantSessions
       .map((s) => {
-        if (s.status === 'active') return `[Active app: ${s.appId}, state: ${JSON.stringify(s.state)}]`
-        if (s.summary) return `[Completed app: ${s.appId} — ${s.summary}]`
+        if (s.status === 'active') {
+          const state = s.state as Record<string, unknown> | null
+          if (state?.gameOver) {
+            return `[Completed app: ${s.appId} — game is finished. If user wants to play again, call the start tool immediately.]`
+          }
+          return `[Active app: ${s.appId}, state: ${JSON.stringify(s.state)}]`
+        }
+        if (s.status === 'completed' || s.summary) {
+          return `[Completed app: ${s.appId} — ${s.summary || 'finished'}. If user wants to play again, call the start tool immediately.]`
+        }
         return ''
       })
       .filter(Boolean)
@@ -39,13 +47,49 @@ export async function streamChatWithTools(
     }
   }
 
-  // Add system prompt if not present
-  const systemPrompt = messages.find((m) => m.role === 'system')
-  if (!systemPrompt) {
-    messages.unshift({
-      role: 'system',
-      content: `You are a helpful educational AI assistant on the TutorMeAI platform. You can help students learn by using available apps. When a student wants to play a game, practice math, study with flashcards, or plan their schedule, use the appropriate tool. After an app interaction completes, discuss the results naturally. Do not invoke apps for unrelated queries — only use tools when the student's request clearly maps to an available app.`,
-    })
+  // Always set/replace system prompt to ensure latest instructions
+  const sysIdx = messages.findIndex((m) => m.role === 'system')
+  const systemContent = `You are TutorMeAI, a friendly tutor for students ages 8-14. You have 4 apps: Chess, Math Practice, Flashcards, and Calendar.
+
+## STEP-BY-STEP — follow this EXACTLY for every message:
+
+Step 1: What app does the user want?
+- "chess" / "play" / "game" → CHESS
+- "math" / "practice" / "problems" → MATH
+- "flashcards" / "study" / "quiz" / "learn" → FLASHCARDS
+- "calendar" / "schedule" → CALENDAR
+- none of the above → NO APP (just chat)
+
+Step 2: Is that app already active? (check app context below)
+- YES, same app already active → Say "You're already on it! Keep going!" Do NOT call any tools.
+- NO, a DIFFERENT app is active → Call end/finish tool for the OLD app, then call start tool for the NEW app. Example: chess active + user says "math" → call chess_end_game then math_start_session.
+- NO app is active → Call the start tool for the requested app.
+
+Step 3: Pick tool parameters using defaults. NEVER ask the user.
+- math_start_session: topic="addition", difficulty="easy"
+- flashcards_start_deck: generate 5-8 cards on any topic from context
+- chess_start_game: playerColor="white"
+
+## ABSOLUTE RULES — VIOLATIONS ARE BUGS:
+- ONLY call chess_ tools when user wants CHESS. ONLY call math_ tools when user wants MATH. ONLY call flashcards_ tools when user wants FLASHCARDS.
+- If user says "flashcards" → you MUST NOT call chess_start_game. Ever.
+- If user says "chess" → you MUST NOT call flashcards_start_deck. Ever.
+- If user says "math" → you MUST NOT call chess_start_game. Ever.
+- After calling a start tool, say 1 sentence max.
+- If the requested app is ALREADY active, do NOTHING. Just chat.
+
+## COACHING (when app context shows active state):
+
+Chess: Read the FEN. Describe positions in kid-friendly language ("your horse", "their castle"). Never use algebraic notation. Keep advice to 2 sentences. Don't repeat what you already said.
+
+Math: Read currentIndex, correct, incorrect. Know which problem they're on. If they ask for help, explain the current problem simply. Celebrate wins, encourage after mistakes. 1-2 sentences.
+
+## KEEP IT SHORT. Students lose attention with long messages.`
+
+  if (sysIdx >= 0) {
+    messages[sysIdx].content = systemContent + '\n\n' + messages[sysIdx].content
+  } else {
+    messages.unshift({ role: 'system', content: systemContent })
   }
 
   // Set SSE headers if not already set by the caller
@@ -141,18 +185,66 @@ export async function streamChatWithTools(
       return
     }
 
+    // Validate tool calls against user intent — catch LLM routing mistakes
+    const lastUserMsg = currentMessages.filter(m => m.role === 'user').pop()?.content?.toLowerCase() || ''
+    const validatedToolCalls = toolCalls.filter(tc => {
+      const name = tc.function.name
+      // Allow end/finish tools always (cleanup is fine)
+      if (name.includes('end_game') || name.includes('finish')) return true
+      // Block start tools that contradict user intent
+      if (name === 'chess_start_game' && !lastUserMsg.match(/chess|play a game|play$/)) {
+        console.log(`[GUARDRAIL] Blocked chess_start_game — user said: "${lastUserMsg.slice(0, 60)}"`)
+        return false
+      }
+      if (name === 'math_start_session' && !lastUserMsg.match(/math|practice|problems|addition|algebra|subtract|multiply|divid/)) {
+        console.log(`[GUARDRAIL] Blocked math_start_session — user said: "${lastUserMsg.slice(0, 60)}"`)
+        return false
+      }
+      if (name === 'flashcards_start_deck' && !lastUserMsg.match(/flash|study|quiz|review|learn/)) {
+        console.log(`[GUARDRAIL] Blocked flashcards_start_deck — user said: "${lastUserMsg.slice(0, 60)}"`)
+        return false
+      }
+      return true
+    })
+
+    // If guardrail removed all start tools but user clearly wants an app, inject the right one
+    const hasStartTool = validatedToolCalls.some(tc => tc.function.name.includes('start'))
+    if (!hasStartTool && validatedToolCalls.length > 0) {
+      // User wanted to switch — figure out which start tool to add
+      let correctTool: string | null = null
+      let correctArgs = '{}'
+      if (lastUserMsg.match(/math|practice math|problems/)) {
+        correctTool = 'math_start_session'
+        correctArgs = '{"topic":"addition","difficulty":"easy"}'
+      } else if (lastUserMsg.match(/flash|study|quiz|review|learn/)) {
+        correctTool = 'flashcards_start_deck'
+        // We can't generate cards here, so let the LLM retry
+        correctTool = null
+      } else if (lastUserMsg.match(/chess|play/)) {
+        correctTool = 'chess_start_game'
+        correctArgs = '{"playerColor":"white"}'
+      }
+      if (correctTool) {
+        console.log(`[GUARDRAIL] Injecting correct tool: ${correctTool}`)
+        validatedToolCalls.push({
+          id: `guardrail-${Date.now()}`,
+          function: { name: correctTool, arguments: correctArgs },
+        })
+      }
+    }
+
     // Process tool calls
     currentMessages.push({
       role: 'assistant',
       content: assistantContent || '',
-      tool_calls: toolCalls.map((tc) => ({
+      tool_calls: validatedToolCalls.map((tc) => ({
         id: tc.id,
         type: 'function' as const,
         function: tc.function,
       })),
     })
 
-    for (const toolCall of toolCalls) {
+    for (const toolCall of validatedToolCalls) {
       const toolName = toolCall.function.name
       let args: Record<string, unknown> = {}
       try { args = JSON.parse(toolCall.function.arguments) } catch { args = {} }

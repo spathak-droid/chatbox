@@ -57,10 +57,13 @@ export async function routeToolCall(
     )
 
     if (result.data) {
-      const isCompleted = result.status === 'ok' && result.summary?.toLowerCase().includes('completed')
+      const isEnd = toolName.includes('end_game') || toolName.includes('finish_session')
+      const isCompleted = isEnd || (result.data as any)?.gameOver || (result.data as any)?.finished
+        || (result.status === 'ok' && result.summary?.toLowerCase().includes('completed'))
       await updateSession(session.id, result.data, isCompleted ? 'completed' : 'active', result.summary)
     }
 
+    result.appSessionId = session.id
     return result
   } catch (err) {
     const durationMs = Date.now() - startTime

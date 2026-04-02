@@ -19,6 +19,7 @@ import {
 import { IconMessage, IconPlus, IconSend } from '@tabler/icons-react'
 import { AppIframe } from '@/components/app-blocks/AppIframe'
 import { useAppStore } from '@/stores/appStore'
+import confetti from 'canvas-confetti'
 
 const API_BASE = 'http://localhost:3000/api'
 
@@ -36,9 +37,16 @@ function getAppIframeUrl(toolName: string): string | null {
   return null
 }
 
+const APP_ID_MAP: Record<string, string> = {
+  math_: 'math-practice',
+  calendar_: 'google-calendar',
+  chess_: 'chess',
+  flashcards_: 'flashcards',
+}
+
 function getAppIdFromToolName(toolName: string): string | null {
-  for (const prefix of Object.keys(APP_PREFIX_MAP)) {
-    if (toolName.startsWith(prefix)) return prefix.replace('_', '')
+  for (const [prefix, appId] of Object.entries(APP_ID_MAP)) {
+    if (toolName.startsWith(prefix)) return appId
   }
   return null
 }
@@ -144,9 +152,11 @@ export function ChatBridgeChat({ token, user, onLogout }: ChatBridgeChatProps) {
     inputRef.current?.focus()
   }, [])
 
-  const sendMessage = useCallback(async () => {
-    const text = input.trim()
-    if (!text || loading) return
+  const sendMessage = useCallback(async (overrideText?: string) => {
+    const text = (overrideText || input).trim()
+    if (!text) return
+    // Only block on loading for user-typed messages, not programmatic tool requests
+    if (loading && !overrideText) return
 
     const userMsg: ChatMessage = {
       id: `user-${Date.now()}`,
@@ -323,13 +333,115 @@ export function ChatBridgeChat({ token, user, onLogout }: ChatBridgeChatProps) {
     }
   }, [input, loading, token, conversationId, scrollToBottom, setActiveApp, loadConversations])
 
+  // Track the active app panel (latest iframe from any message)
+  const [activePanel, setActivePanel] = useState<{
+    appId: string
+    iframeUrl: string
+    sessionState: Record<string, unknown>
+    appSessionId: string
+  } | null>(null)
+
+  // Update active panel whenever messages change with new iframes
+  useEffect(() => {
+    // Scan from newest message backward to find the latest active iframe
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const msg = messages[i]
+      const iframes = msg.appIframes
+
+      // If this message has iframes, check if the latest one is still active
+      if (iframes && iframes.length > 0) {
+        const latest = iframes[iframes.length - 1]
+        const state = latest.sessionState as Record<string, unknown>
+
+        // If the session is finished/over, skip it and keep looking
+        if (state?.gameOver || state?.finished) {
+          continue
+        }
+
+        setActivePanel((prev) => {
+          if (prev?.appSessionId === latest.appSessionId && prev?.sessionState === latest.sessionState) return prev
+          return latest
+        })
+        return
+      }
+
+      // If latest message only has end/finish tool calls and no iframes, clear panel
+      if (msg.toolCalls?.some(tc => tc.name.includes('end_game') || tc.name.includes('finish'))) {
+        // But only if no newer message has an iframe (we're scanning newest-first, so if we're here, nothing newer had one)
+        setActivePanel(null)
+        return
+      }
+    }
+
+    // No active iframes found at all
+    setActivePanel(null)
+  }, [messages])
+
   const handleToolRequest = useCallback(
     (request: { tool: string; args: Record<string, unknown> }) => {
-      // Send tool request as a chat message
+      // Send tool request as a chat message directly
       const toolMessage = `[Tool request: ${request.tool}] ${JSON.stringify(request.args)}`
-      setInput(toolMessage)
+      sendMessage(toolMessage)
     },
-    []
+    [sendMessage]
+  )
+
+  const fireConfetti = useCallback(() => {
+    // Left side burst
+    confetti({
+      particleCount: 80,
+      spread: 70,
+      origin: { x: 0.1, y: 1 },
+      angle: 60,
+      colors: ['#ff0', '#0f0', '#00f', '#f0f', '#0ff', '#f00'],
+    })
+    // Right side burst
+    confetti({
+      particleCount: 80,
+      spread: 70,
+      origin: { x: 0.9, y: 1 },
+      angle: 120,
+      colors: ['#ff0', '#0f0', '#00f', '#f0f', '#0ff', '#f00'],
+    })
+    // Delayed second wave
+    setTimeout(() => {
+      confetti({ particleCount: 50, spread: 100, origin: { x: 0.1, y: 1 }, angle: 60 })
+      confetti({ particleCount: 50, spread: 100, origin: { x: 0.9, y: 1 }, angle: 120 })
+    }, 300)
+    setTimeout(() => {
+      confetti({ particleCount: 30, spread: 120, origin: { x: 0.15, y: 1 }, angle: 70 })
+      confetti({ particleCount: 30, spread: 120, origin: { x: 0.85, y: 1 }, angle: 110 })
+    }, 600)
+  }, [])
+
+  const handleGameOver = useCallback(
+    (result: { won: boolean; result?: string }) => {
+      if (result.won) {
+        fireConfetti()
+      }
+      // Close the panel after a delay so the user sees the final state
+      setTimeout(() => setActivePanel(null), 3000)
+    },
+    [fireConfetti]
+  )
+
+  // Sync board state to server so the LLM can see it
+  const handleStateChange = useCallback(
+    (state: Record<string, unknown>) => {
+      if (!conversationId || !activePanel) return
+      fetch(`${API_BASE}/chat/conversations/${conversationId}/sync-app-state`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          appId: activePanel.appId,
+          state,
+        }),
+      }).catch(() => {})
+    },
+    [conversationId, activePanel, token]
   )
 
   return (
@@ -400,17 +512,17 @@ export function ChatBridgeChat({ token, user, onLogout }: ChatBridgeChatProps) {
       </Box>
 
       {/* Chat area */}
-      <Flex direction="column" style={{ flex: 1, height: '100vh', background: 'var(--mantine-color-dark-7)' }}>
+      <Flex direction="column" style={{ flex: 1, minWidth: 0, height: '100vh', background: 'var(--mantine-color-dark-7)' }}>
         {/* Messages */}
         <ScrollArea style={{ flex: 1 }} viewportRef={viewportRef} p="md">
-          <Stack gap="md" maw={800} mx="auto" pb="xl">
+          <Stack gap="md" maw={600} mx="auto" pb="xl">
             {messages.length === 0 && (
               <Stack align="center" justify="center" py="xl" gap="md">
                 <Title order={3} c="dimmed">
                   Start a conversation
                 </Title>
                 <Text size="sm" c="dimmed" ta="center" maw={400}>
-                  Ask me anything! Try &quot;let&apos;s practice math&quot; or &quot;help me study with flashcards&quot;
+                  Ask me anything! Try &quot;let&apos;s play chess&quot; or &quot;help me study with flashcards&quot;
                   to launch interactive apps.
                 </Text>
               </Stack>
@@ -431,15 +543,40 @@ export function ChatBridgeChat({ token, user, onLogout }: ChatBridgeChatProps) {
           </Stack>
         </ScrollArea>
 
+        {/* Suggestion buttons */}
+        <Group gap="xs" px="md" pb={4} pt="xs" maw={600} mx="auto" style={{ flex: '0 0 auto' }}>
+          {[
+            { label: 'Play Chess', icon: '\u265E', msg: "Let's play chess" },
+            { label: 'Practice Math', icon: '\u2795', msg: "Let's practice math" },
+            { label: 'Flashcards', icon: '\uD83D\uDCDD', msg: "Let's study with flashcards" },
+            { label: 'Calendar', icon: '\uD83D\uDCC5', msg: "Open my calendar" },
+          ].map((s) => (
+            <Button
+              key={s.label}
+              size="xs"
+              variant="light"
+              color="gray"
+              radius="xl"
+              onClick={() => sendMessage(s.msg)}
+              disabled={loading}
+              leftSection={<span style={{ fontSize: 14 }}>{s.icon}</span>}
+              styles={{ root: { fontWeight: 400 } }}
+            >
+              {s.label}
+            </Button>
+          ))}
+        </Group>
+
         {/* Input */}
         <Box
           p="md"
+          pt={4}
           style={{
             borderTop: '1px solid var(--mantine-color-dark-5)',
             flex: '0 0 auto',
           }}
         >
-          <Flex gap="sm" maw={800} mx="auto">
+          <Flex gap="sm" maw={600} mx="auto">
             <TextInput
               ref={inputRef}
               placeholder="Type a message..."
@@ -459,7 +596,7 @@ export function ChatBridgeChat({ token, user, onLogout }: ChatBridgeChatProps) {
               size="lg"
               variant="filled"
               color="blue"
-              onClick={sendMessage}
+              onClick={() => sendMessage()}
               disabled={loading || !input.trim()}
               h={42}
               w={42}
@@ -469,6 +606,39 @@ export function ChatBridgeChat({ token, user, onLogout }: ChatBridgeChatProps) {
           </Flex>
         </Box>
       </Flex>
+
+      {/* Right panel — active app */}
+      {activePanel && (
+        <Box
+          style={{
+            width: 440,
+            minWidth: 440,
+            height: '100vh',
+            borderLeft: '1px solid var(--mantine-color-dark-5)',
+            background: 'var(--mantine-color-dark-8)',
+            display: 'flex',
+            flexDirection: 'column',
+          }}
+        >
+          <Box p="sm" style={{ flex: '0 0 auto', borderBottom: '1px solid var(--mantine-color-dark-5)' }}>
+            <Text size="sm" fw={600} c="white" tt="capitalize">
+              {activePanel.appId}
+            </Text>
+          </Box>
+          <Box style={{ flex: 1, padding: 8 }}>
+            <AppIframe
+              appId={activePanel.appId}
+              iframeUrl={activePanel.iframeUrl}
+              sessionState={activePanel.sessionState}
+              appSessionId={activePanel.appSessionId}
+              onToolRequest={handleToolRequest}
+              onGameOver={handleGameOver}
+              onStateChange={handleStateChange}
+              fillHeight
+            />
+          </Box>
+        </Box>
+      )}
     </Flex>
   )
 }
@@ -525,21 +695,7 @@ function MessageBubble({
         )}
       </Flex>
 
-      {/* App iframes */}
-      {message.appIframes && message.appIframes.length > 0 && (
-        <Stack gap="sm" ml={40}>
-          {message.appIframes.map((iframe, idx) => (
-            <AppIframe
-              key={`${iframe.appSessionId}-${idx}`}
-              appId={iframe.appId}
-              iframeUrl={iframe.iframeUrl}
-              sessionState={iframe.sessionState}
-              appSessionId={iframe.appSessionId}
-              onToolRequest={onToolRequest}
-            />
-          ))}
-        </Stack>
-      )}
+      {/* App iframes now render in the right panel */}
     </Stack>
   )
 }

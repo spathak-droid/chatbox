@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { requireAuth } from '../auth/middleware.js'
 import { query } from '../db/client.js'
 import { streamChatWithTools } from './openrouter.js'
+import { getSessionsForConversation } from '../apps/session.js'
 
 export const chatRoutes = Router()
 
@@ -64,6 +65,36 @@ chatRoutes.get('/conversations', async (req, res, next) => {
       [req.user!.id]
     )
     res.json({ conversations: result.rows })
+  } catch (err) {
+    next(err)
+  }
+})
+
+// Sync app state from frontend (when moves happen directly in iframe)
+chatRoutes.post('/conversations/:id/sync-app-state', async (req, res, next) => {
+  try {
+    const { appId, state } = z.object({
+      appId: z.string(),
+      state: z.record(z.unknown()),
+    }).parse(req.body)
+
+    const userId = req.user!.id
+    const conversationId = req.params.id
+
+    // Find active session for this app in this conversation
+    const sessions = await getSessionsForConversation(conversationId)
+    const session = sessions.find(s => s.appId === appId && s.status === 'active')
+
+    if (session) {
+      const status = state.gameOver ? 'completed' : 'active'
+      const summary = state.gameOver ? String(state.result || 'Game ended') : undefined
+      await query(
+        `UPDATE app_sessions SET state = $1::jsonb, status = COALESCE($2, status), summary = COALESCE($3, summary), updated_at = NOW() WHERE id = $4`,
+        [JSON.stringify(state), status, summary || null, session.id]
+      )
+    }
+
+    res.json({ ok: true })
   } catch (err) {
     next(err)
   }
