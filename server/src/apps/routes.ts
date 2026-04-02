@@ -47,8 +47,21 @@ appRoutes.get('/oauth/google/callback', async (req, res, next) => {
     const userId = state.userId
     const tokens = await exchangeGoogleCode(code)
     const expiresAt = new Date(Date.now() + tokens.expiresIn * 1000)
+
+    // Fetch Google email
+    let googleEmail = ''
+    try {
+      const infoRes = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
+        headers: { Authorization: `Bearer ${tokens.accessToken}` },
+      })
+      if (infoRes.ok) {
+        const info = await infoRes.json()
+        googleEmail = info.email || ''
+      }
+    } catch {}
+
     await saveOAuthConnection(userId, 'google', tokens.accessToken, tokens.refreshToken, expiresAt, 'calendar.events')
-    res.send('<html><body><script>window.close()</script><p>Connected! You can close this tab.</p></body></html>')
+    res.send(`<html><body><script>window.close()</script><p>Connected${googleEmail ? ` as ${googleEmail}` : ''}! You can close this tab.</p></body></html>`)
   } catch (err) {
     next(err)
   }
@@ -58,7 +71,7 @@ appRoutes.get('/oauth/google/callback', async (req, res, next) => {
 appRoutes.get('/oauth/:provider/status', requireAuth, async (req, res, next) => {
   try {
     const conn = await getOAuthConnection(req.user!.id, req.params.provider)
-    res.json({ connected: !!conn })
+    res.json({ connected: !!conn, accessToken: conn?.access_token || null })
   } catch (err) {
     next(err)
   }

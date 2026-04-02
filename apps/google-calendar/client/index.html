@@ -331,6 +331,7 @@
       switch (msg.type) {
         case 'host.init':
           sessionId = msg.appSessionId
+          if (msg.platformToken) platformToken = msg.platformToken
           if (msg.state) {
             state = msg.state
             render()
@@ -364,9 +365,8 @@
           break
 
         case 'calendar_start_connect':
-          if (result.data && result.data.authUrl) {
-            window.open(result.data.authUrl, '_blank', 'width=500,height=600')
-          }
+          // OAuth is now handled directly in requestConnect()
+          render()
           break
 
         case 'calendar_list_events':
@@ -382,9 +382,25 @@
       sendResize()
     }
 
-    function render() {
+    async function render() {
       waitingEl.classList.add('hidden')
       errorMsgEl.classList.add('hidden')
+
+      // If we don't have the access token yet, try to fetch it from platform
+      if (!state.accessToken && platformToken) {
+        try {
+          const res = await fetch(`${PLATFORM_URL}/api/apps/oauth/google/status`, {
+            headers: { Authorization: `Bearer ${platformToken}` },
+          })
+          if (res.ok) {
+            const data = await res.json()
+            if (data.connected && data.accessToken) {
+              state.connected = true
+              state.accessToken = data.accessToken
+            }
+          }
+        } catch {}
+      }
 
       if (state.connected) {
         connectView.classList.add('hidden')
@@ -441,20 +457,77 @@
       sendResize()
     }
 
-    function requestConnect() {
-      sendToHost({
-        type: 'app.tool_request',
-        toolName: 'calendar_start_connect',
-        args: {},
-      })
+    // Platform server URL for OAuth
+    const PLATFORM_URL = 'http://localhost:3000'
+    let platformToken = null
+
+    async function requestConnect() {
+      if (!platformToken) {
+        showError('Not authenticated. Please refresh the page.')
+        console.log('[CALENDAR] No platformToken available')
+        return
+      }
+
+      // Open popup IMMEDIATELY on click (before async) to avoid popup blocker
+      const popup = window.open('about:blank', 'google-oauth', 'width=500,height=600')
+      console.log('[CALENDAR] platformToken:', platformToken ? 'present' : 'MISSING')
+
+      try {
+        console.log('[CALENDAR] Fetching OAuth URL...')
+        const res = await fetch(`${PLATFORM_URL}/api/apps/oauth/google/start`, {
+          headers: { Authorization: `Bearer ${platformToken}` },
+        })
+        console.log('[CALENDAR] OAuth response status:', res.status)
+        if (!res.ok) throw new Error(`Failed to start OAuth: ${res.status}`)
+        const data = await res.json()
+        console.log('[CALENDAR] Got authUrl:', data.authUrl ? 'yes' : 'no')
+        if (data.authUrl && popup) {
+          popup.location.href = data.authUrl
+          // Poll for connection completion
+          const pollInterval = setInterval(async () => {
+            try {
+              const statusRes = await fetch(`${PLATFORM_URL}/api/apps/oauth/google/status`, {
+                headers: { Authorization: `Bearer ${platformToken}` },
+              })
+              if (statusRes.ok) {
+                const statusData = await statusRes.json()
+                if (statusData.connected) {
+                  clearInterval(pollInterval)
+                  state.connected = true
+                  state.accessToken = statusData.accessToken
+                  render()
+                  syncToParent()
+                  requestRefreshEvents()
+                }
+              }
+            } catch {}
+          }, 2000)
+          // Stop polling after 2 minutes
+          setTimeout(() => clearInterval(pollInterval), 120000)
+        }
+      } catch (err) {
+        showError('Failed to connect. Try again.')
+      }
     }
 
-    function requestRefreshEvents() {
-      sendToHost({
-        type: 'app.tool_request',
-        toolName: 'calendar_list_events',
-        args: { maxResults: 10 },
-      })
+    async function requestRefreshEvents() {
+      if (!state.connected) return
+      try {
+        const res = await fetch('/api/tools/calendar_list_events', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ args: { maxResults: 10 }, sessionState: state, platformToken }),
+        })
+        const result = await res.json()
+        handleToolResult('calendar_list_events', result)
+        syncToParent()
+      } catch {
+        showError('Failed to load events')
+      }
+    }
+
+    function syncToParent() {
+      sendToHost({ type: 'app.state_patch', state })
     }
 
     function showError(text) {

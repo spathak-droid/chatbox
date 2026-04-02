@@ -11,7 +11,7 @@ import { loadAppsIntoCache, registerApp } from './apps/registry.js'
 
 const app = express()
 
-app.use(cors({ origin: config.corsOrigin, credentials: true }))
+app.use(cors({ origin: [config.corsOrigin, 'http://localhost:3001', 'http://localhost:3002', 'http://localhost:3003', 'http://localhost:3004'], credentials: true }))
 app.use(express.json())
 
 // Health check
@@ -39,7 +39,7 @@ async function start() {
 
   for (const baseUrl of appEndpoints) {
     try {
-      const res = await fetch(`${baseUrl}/api/manifest`)
+      const res = await fetch(`${baseUrl}/api/manifest`, { signal: AbortSignal.timeout(3000) })
       if (res.ok) {
         const manifest = await res.json()
         await registerApp(manifest)

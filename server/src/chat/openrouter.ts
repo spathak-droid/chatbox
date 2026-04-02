@@ -15,7 +15,8 @@ export async function streamChatWithTools(
   messages: ChatMessage[],
   conversationId: string,
   userId: string,
-  res: Response
+  res: Response,
+  authToken?: string
 ) {
   const toolSchemas = await getAllToolSchemas()
 
@@ -77,6 +78,7 @@ Step 3: Pick tool parameters using defaults. NEVER ask the user.
 - If user says "math" → you MUST NOT call chess_start_game. Ever.
 - After calling a start tool, say 1 sentence max.
 - If the requested app is ALREADY active, do NOTHING. Just chat.
+- ONLY do what the user asks. NEVER take extra actions. If user says "delete X" → delete X and stop. Do NOT create new events, suggest alternatives, or add anything the user didn't request. Less is more.
 
 ## COACHING (when app context shows active state):
 
@@ -251,7 +253,7 @@ Math: Read currentIndex, correct, incorrect. Know which problem they're on. If t
 
       res.write(`data: ${JSON.stringify({ type: 'tool_call', toolCallId: toolCall.id, toolName, args })}\n\n`)
 
-      const result = await routeToolCall(toolName, args, { userId, conversationId })
+      const result = await routeToolCall(toolName, args, { userId, conversationId, authToken })
 
       res.write(`data: ${JSON.stringify({ type: 'tool_result', toolCallId: toolCall.id, toolName, result })}\n\n`)
 

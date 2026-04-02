@@ -67,3 +67,46 @@ export async function createEvent(
   })
   return (await res.json()) as CalendarEvent
 }
+
+export async function deleteEvent(
+  accessToken: string,
+  eventId: string,
+): Promise<void> {
+  await calendarFetch(accessToken, `/calendars/primary/events/${eventId}`, {
+    method: 'DELETE',
+  })
+}
+
+export async function updateEvent(
+  accessToken: string,
+  eventId: string,
+  updates: Partial<CalendarEventInput>,
+): Promise<CalendarEvent> {
+  const res = await calendarFetch(accessToken, `/calendars/primary/events/${eventId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(updates),
+  })
+  return (await res.json()) as CalendarEvent
+}
+
+export async function searchEvents(
+  accessToken: string,
+  query: string,
+  params: { timeMin?: string; timeMax?: string; maxResults?: number } = {},
+): Promise<CalendarEvent[]> {
+  const now = new Date().toISOString()
+  const monthFromNow = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString()
+
+  const searchParams = new URLSearchParams({
+    q: query,
+    maxResults: String(params.maxResults || 10),
+    timeMin: params.timeMin || now,
+    timeMax: params.timeMax || monthFromNow,
+    singleEvents: 'true',
+    orderBy: 'startTime',
+  })
+
+  const res = await calendarFetch(accessToken, `/calendars/primary/events?${searchParams}`)
+  const data = await res.json()
+  return (data.items || []) as CalendarEvent[]
+}

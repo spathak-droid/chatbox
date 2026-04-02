@@ -58,7 +58,7 @@ export function buildGoogleAuthUrl(state: string): string {
     client_id: config.googleClientId,
     redirect_uri: config.googleRedirectUri,
     response_type: 'code',
-    scope: 'https://www.googleapis.com/auth/calendar.events',
+    scope: 'https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/userinfo.email',
     access_type: 'offline',
     prompt: 'consent',
     state,

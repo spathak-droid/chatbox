@@ -2,13 +2,14 @@ import { AppResultEnvelopeSchema, type AppResultEnvelope } from '../shared-types
 import { query } from '../db/client.js'
 import { findAppByToolName } from './registry.js'
 import { getOrCreateSession, updateSession } from './session.js'
+import { getOAuthConnection } from './oauth-manager.js'
 
 const TOOL_TIMEOUT_MS = 15000
 
 export async function routeToolCall(
   toolName: string,
   args: Record<string, unknown>,
-  context: { userId: string; conversationId: string }
+  context: { userId: string; conversationId: string; authToken?: string }
 ): Promise<AppResultEnvelope> {
   const app = findAppByToolName(toolName)
   if (!app) {
@@ -26,6 +27,15 @@ export async function routeToolCall(
   const startTime = Date.now()
 
   try {
+    // Inject OAuth token for calendar tools
+    let sessionState = session.state as Record<string, unknown>
+    if (toolName.startsWith('calendar_')) {
+      const oauthConn = await getOAuthConnection(context.userId, 'google')
+      if (oauthConn) {
+        sessionState = { ...sessionState, accessToken: oauthConn.access_token, connected: true }
+      }
+    }
+
     const controller = new AbortController()
     const timeout = setTimeout(() => controller.abort(), TOOL_TIMEOUT_MS)
 
@@ -35,8 +45,9 @@ export async function routeToolCall(
       body: JSON.stringify({
         args,
         sessionId: session.id,
-        sessionState: session.state,
+        sessionState,
         userId: context.userId,
+        platformToken: context.authToken,
       }),
       signal: controller.signal,
     })

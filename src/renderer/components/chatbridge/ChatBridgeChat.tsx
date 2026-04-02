@@ -634,6 +634,7 @@ export function ChatBridgeChat({ token, user, onLogout }: ChatBridgeChatProps) {
               onToolRequest={handleToolRequest}
               onGameOver={handleGameOver}
               onStateChange={handleStateChange}
+              platformToken={token}
               fillHeight
             />
           </Box>

@@ -23,6 +23,9 @@ import { useRouterState } from '@tanstack/react-router'
 import type { MutableRefObject } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Virtuoso } from 'react-virtuoso'
+import { NavLink } from '@mantine/core'
+import { useNavigate } from '@tanstack/react-router'
+import { useIsSmallScreen } from '@/hooks/useScreenChange'
 import { useSessionList } from '@/stores/chatStore'
 import { reorderSessions } from '@/stores/sessionActions'
 import { useUIStore } from '@/stores/uiStore'
@@ -36,6 +39,9 @@ export default function SessionList(props: Props) {
   const { t } = useTranslation()
   const { sessionMetaList: sortedSessions, refetch } = useSessionList()
   const setOpenSearchDialog = useUIStore((s) => s.setOpenSearchDialog)
+  const setShowSidebar = useUIStore((s) => s.setShowSidebar)
+  const navigate = useNavigate()
+  const isSmallScreen = useIsSmallScreen()
   const sensors = useSensors(
     useSensor(TouchSensor, {
       activationConstraint: {
@@ -124,6 +130,27 @@ export default function SessionList(props: Props) {
                   />
                 </SortableItem>
               )}
+              components={{
+                Footer: () => (
+                  <NavLink
+                    c="chatbox-secondary"
+                    className="rounded"
+                    mx="xs"
+                    my={4}
+                    label="TutorMeAI"
+                    leftSection={<span style={{ fontSize: 18, width: 20, textAlign: 'center' }}>🎓</span>}
+                    active={routerState.location.pathname === '/chatbridge'}
+                    onClick={() => {
+                      navigate({ to: '/chatbridge' })
+                      if (isSmallScreen) {
+                        setShowSidebar(false)
+                      }
+                    }}
+                    variant="light"
+                    p="xs"
+                  />
+                ),
+              }}
             />
           </SortableContext>
         )}

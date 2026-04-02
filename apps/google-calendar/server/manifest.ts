@@ -88,5 +88,71 @@ export const manifest: AppManifest = {
         },
       ],
     },
+    {
+      name: 'calendar_delete_event',
+      description: 'Delete an event from the user\'s Google Calendar by its event ID.',
+      parameters: [
+        {
+          name: 'eventId',
+          type: 'string',
+          description: 'The Google Calendar event ID to delete. Get this from calendar_list_events or calendar_search_events.',
+          required: true,
+        },
+      ],
+    },
+    {
+      name: 'calendar_update_event',
+      description: 'Update an existing event on the user\'s Google Calendar. Only provide fields you want to change.',
+      parameters: [
+        {
+          name: 'eventId',
+          type: 'string',
+          description: 'The Google Calendar event ID to update.',
+          required: true,
+        },
+        {
+          name: 'summary',
+          type: 'string',
+          description: 'New title for the event',
+          required: false,
+        },
+        {
+          name: 'startTime',
+          type: 'string',
+          description: 'New start time in ISO 8601 format',
+          required: false,
+        },
+        {
+          name: 'endTime',
+          type: 'string',
+          description: 'New end time in ISO 8601 format',
+          required: false,
+        },
+        {
+          name: 'description',
+          type: 'string',
+          description: 'New description for the event',
+          required: false,
+        },
+      ],
+    },
+    {
+      name: 'calendar_search_events',
+      description: 'Search for events on the user\'s Google Calendar by keyword. Returns matching events with their IDs (useful for finding events to delete or update).',
+      parameters: [
+        {
+          name: 'query',
+          type: 'string',
+          description: 'Search term to find events (matches title, description, etc.)',
+          required: true,
+        },
+        {
+          name: 'maxResults',
+          type: 'number',
+          description: 'Maximum number of results (1-50)',
+          required: false,
+        },
+      ],
+    },
   ],
 }

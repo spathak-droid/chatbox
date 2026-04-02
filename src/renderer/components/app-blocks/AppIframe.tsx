@@ -10,6 +10,7 @@ interface AppIframeProps {
   onToolRequest?: (request: { tool: string; args: Record<string, unknown> }) => void
   onGameOver?: (result: { won: boolean; result?: string }) => void
   onStateChange?: (state: Record<string, unknown>) => void
+  platformToken?: string
   fillHeight?: boolean
 }
 
@@ -22,6 +23,7 @@ export function AppIframe({
   onToolRequest,
   onGameOver,
   onStateChange,
+  platformToken,
   fillHeight,
 }: AppIframeProps) {
   const iframeRef = useRef<HTMLIFrameElement>(null)
@@ -31,6 +33,8 @@ export function AppIframe({
   const sentInit = useRef(false)
   const stateRef = useRef(sessionState)
   stateRef.current = sessionState
+  const tokenRef = useRef(platformToken)
+  tokenRef.current = platformToken
 
   // Single stable message handler — no deps that cause re-creation
   useEffect(() => {
@@ -49,6 +53,7 @@ export function AppIframe({
             type: 'host.init',
             appSessionId,
             state: stateRef.current,
+            platformToken: tokenRef.current,
           }, '*')
           sentInit.current = true
           setLoading(false)

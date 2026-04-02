@@ -52,7 +52,8 @@ chatRoutes.post('/send', async (req, res, next) => {
     res.flushHeaders()
     res.write(`data: ${JSON.stringify({ type: 'conversation', conversationId })}\n\n`)
 
-    await streamChatWithTools(messages, conversationId, userId, res)
+    const authToken = (req.headers.authorization || '').replace('Bearer ', '')
+    await streamChatWithTools(messages, conversationId, userId, res, authToken)
   } catch (err) {
     if (!res.headersSent) next(err)
   }

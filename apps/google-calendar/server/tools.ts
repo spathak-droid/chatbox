@@ -1,5 +1,5 @@
 import type { AppResultEnvelope } from '../../../shared/types/app-session.js'
-import { listEvents, createEvent, type CalendarEvent } from './google-api.js'
+import { listEvents, createEvent, deleteEvent, updateEvent, searchEvents, type CalendarEvent } from './google-api.js'
 
 const PLATFORM_URL = process.env.PLATFORM_URL || 'http://localhost:3000'
 
@@ -36,6 +36,12 @@ export async function handleTool(
       return handleCreateStudyBlock(args, sessionState)
     case 'calendar_create_study_plan':
       return handleCreateStudyPlan(args, sessionState)
+    case 'calendar_delete_event':
+      return handleDeleteEvent(args, sessionState)
+    case 'calendar_update_event':
+      return handleUpdateEvent(args, sessionState)
+    case 'calendar_search_events':
+      return handleSearchEvents(args, sessionState)
     default:
       return { status: 'error', error: `Unknown tool: ${toolName}` }
   }
@@ -247,6 +253,110 @@ async function handleCreateStudyPlan(
     return {
       status: 'error',
       error: `Failed to create study plan: ${err instanceof Error ? err.message : String(err)}`,
+    }
+  }
+}
+
+async function handleDeleteEvent(
+  args: Record<string, unknown>,
+  sessionState: SessionState,
+): Promise<AppResultEnvelope> {
+  const tokenOrError = requireAccessToken(sessionState)
+  if (typeof tokenOrError !== 'string') return tokenOrError
+
+  const eventId = args.eventId as string
+  if (!eventId) {
+    return { status: 'error', error: 'Missing required parameter: eventId' }
+  }
+
+  try {
+    await deleteEvent(tokenOrError, eventId)
+
+    // Remove from local state
+    const events = (sessionState.events || []).filter((e: CalendarEvent) => e.id !== eventId)
+    const studyBlocks = (sessionState.studyBlocks || []).filter((e: CalendarEvent) => e.id !== eventId)
+
+    return {
+      status: 'ok',
+      data: { events, studyBlocks },
+      summary: `Deleted event ${eventId}.`,
+    }
+  } catch (err) {
+    return {
+      status: 'error',
+      error: `Failed to delete event: ${err instanceof Error ? err.message : String(err)}`,
+    }
+  }
+}
+
+async function handleUpdateEvent(
+  args: Record<string, unknown>,
+  sessionState: SessionState,
+): Promise<AppResultEnvelope> {
+  const tokenOrError = requireAccessToken(sessionState)
+  if (typeof tokenOrError !== 'string') return tokenOrError
+
+  const eventId = args.eventId as string
+  if (!eventId) {
+    return { status: 'error', error: 'Missing required parameter: eventId' }
+  }
+
+  const updates: Record<string, unknown> = {}
+  if (args.summary) updates.summary = args.summary
+  if (args.description) updates.description = args.description
+  if (args.startTime) updates.start = { dateTime: args.startTime as string }
+  if (args.endTime) updates.end = { dateTime: args.endTime as string }
+
+  try {
+    const updated = await updateEvent(tokenOrError, eventId, updates as any)
+    return {
+      status: 'ok',
+      data: { updatedEvent: updated },
+      summary: `Updated event "${updated.summary}".`,
+    }
+  } catch (err) {
+    return {
+      status: 'error',
+      error: `Failed to update event: ${err instanceof Error ? err.message : String(err)}`,
+    }
+  }
+}
+
+async function handleSearchEvents(
+  args: Record<string, unknown>,
+  sessionState: SessionState,
+): Promise<AppResultEnvelope> {
+  const tokenOrError = requireAccessToken(sessionState)
+  if (typeof tokenOrError !== 'string') return tokenOrError
+
+  const searchQuery = args.query as string
+  if (!searchQuery) {
+    return { status: 'error', error: 'Missing required parameter: query' }
+  }
+
+  try {
+    const events = await searchEvents(tokenOrError, searchQuery, {
+      maxResults: args.maxResults as number | undefined,
+      timeMin: args.timeMin as string | undefined,
+      timeMax: args.timeMax as string | undefined,
+    })
+
+    const summaries = events.map((e) => {
+      const start = e.start.dateTime || e.start.date || 'unknown'
+      return `- ${e.summary} (${start}) [id: ${e.id}]`
+    })
+
+    return {
+      status: 'ok',
+      data: { searchResults: events },
+      summary: events.length > 0
+        ? `Found ${events.length} events matching "${searchQuery}":\n${summaries.join('\n')}`
+        : `No events found matching "${searchQuery}".`,
+    }
+  } catch (err) {
+    return {
+      status: 'error',
+      error: `Failed to search events: ${err instanceof Error ? err.message : String(err)}`,
     }
   }
 }
