@@ -11,6 +11,7 @@ export const manifest: AppManifest = {
   baseUrl,
   iframeUrl: `${baseUrl}/app`,
   permissions: [],
+  activationKeywords: ['math', 'practice', 'problems', 'addition', 'algebra', 'subtract', 'multiply', 'divid'],
   tools: [
     {
       name: 'math_start_session',

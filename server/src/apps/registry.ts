@@ -57,6 +57,10 @@ export async function getAllToolSchemas() {
   return apps.flatMap(manifestToToolSchemas)
 }
 
+export function getCachedApps(): AppManifest[] {
+  return Array.from(appCache.values())
+}
+
 export async function loadAppsIntoCache() {
   const apps = await getAllApps()
   for (const app of apps) {

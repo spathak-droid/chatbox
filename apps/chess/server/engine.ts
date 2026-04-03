@@ -1,20 +1,24 @@
 import { Chess } from 'chess.js'
 
+export type Difficulty = 'easy' | 'medium' | 'hard'
+
 export interface ChessState {
   fen: string
   moves: string[]
   playerColor: 'white' | 'black'
   gameOver: boolean
   result?: string
+  difficulty?: Difficulty
 }
 
-export function newGame(playerColor: 'white' | 'black' = 'white'): ChessState {
+export function newGame(playerColor: 'white' | 'black' = 'white', difficulty?: Difficulty): ChessState {
   const game = new Chess()
   return {
     fen: game.fen(),
     moves: [],
     playerColor,
     gameOver: false,
+    difficulty,
   }
 }
 
@@ -109,21 +113,130 @@ export function getLegalMovesFrom(fen: string, square: string): string[] {
   return moves.map(m => m.to)
 }
 
+// ============ MINIMAX AI ENGINE ============
+
+const PIECE_VALUES: Record<string, number> = {
+  p: 100, n: 320, b: 330, r: 500, q: 900, k: 20000,
+}
+
+// Piece-square tables for positional play (from white's perspective)
+const PAWN_TABLE = [
+   0,  0,  0,  0,  0,  0,  0,  0,
+  50, 50, 50, 50, 50, 50, 50, 50,
+  10, 10, 20, 30, 30, 20, 10, 10,
+   5,  5, 10, 25, 25, 10,  5,  5,
+   0,  0,  0, 20, 20,  0,  0,  0,
+   5, -5,-10,  0,  0,-10, -5,  5,
+   5, 10, 10,-20,-20, 10, 10,  5,
+   0,  0,  0,  0,  0,  0,  0,  0,
+]
+
+const KNIGHT_TABLE = [
+  -50,-40,-30,-30,-30,-30,-40,-50,
+  -40,-20,  0,  0,  0,  0,-20,-40,
+  -30,  0, 10, 15, 15, 10,  0,-30,
+  -30,  5, 15, 20, 20, 15,  5,-30,
+  -30,  0, 15, 20, 20, 15,  0,-30,
+  -30,  5, 10, 15, 15, 10,  5,-30,
+  -40,-20,  0,  5,  5,  0,-20,-40,
+  -50,-40,-30,-30,-30,-30,-40,-50,
+]
+
+function evaluateBoard(game: Chess): number {
+  if (game.isCheckmate()) {
+    return game.turn() === 'w' ? -99999 : 99999
+  }
+  if (game.isDraw()) return 0
+
+  let score = 0
+  const board = game.board()
+  for (let r = 0; r < 8; r++) {
+    for (let c = 0; c < 8; c++) {
+      const piece = board[r][c]
+      if (!piece) continue
+      const val = PIECE_VALUES[piece.type] || 0
+      // Add positional bonus
+      let posBonus = 0
+      if (piece.type === 'p') {
+        posBonus = PAWN_TABLE[piece.color === 'w' ? r * 8 + c : (7 - r) * 8 + c]
+      } else if (piece.type === 'n') {
+        posBonus = KNIGHT_TABLE[piece.color === 'w' ? r * 8 + c : (7 - r) * 8 + c]
+      }
+      score += piece.color === 'w' ? (val + posBonus) : -(val + posBonus)
+    }
+  }
+  return score
+}
+
+function minimax(game: Chess, depth: number, alpha: number, beta: number, isMaximizing: boolean): number {
+  if (depth === 0 || game.isGameOver()) {
+    return evaluateBoard(game)
+  }
+
+  const moves = game.moves()
+
+  if (isMaximizing) {
+    let maxEval = -Infinity
+    for (const move of moves) {
+      game.move(move)
+      const eval_ = minimax(game, depth - 1, alpha, beta, false)
+      game.undo()
+      maxEval = Math.max(maxEval, eval_)
+      alpha = Math.max(alpha, eval_)
+      if (beta <= alpha) break
+    }
+    return maxEval
+  } else {
+    let minEval = Infinity
+    for (const move of moves) {
+      game.move(move)
+      const eval_ = minimax(game, depth - 1, alpha, beta, true)
+      game.undo()
+      minEval = Math.min(minEval, eval_)
+      beta = Math.min(beta, eval_)
+      if (beta <= alpha) break
+    }
+    return minEval
+  }
+}
+
+function findBestMove(game: Chess, depth: number): string {
+  const moves = game.moves()
+  const isMaximizing = game.turn() === 'w'
+  let bestMove = moves[0]
+  let bestEval = isMaximizing ? -Infinity : Infinity
+
+  for (const move of moves) {
+    game.move(move)
+    const eval_ = minimax(game, depth - 1, -Infinity, Infinity, !isMaximizing)
+    game.undo()
+
+    if (isMaximizing ? eval_ > bestEval : eval_ < bestEval) {
+      bestEval = eval_
+      bestMove = move
+    }
+  }
+  return bestMove
+}
+
 export function makeAiMove(state: ChessState): { state: ChessState; error?: string } {
   const game = new Chess(state.fen)
   const moves = game.moves()
   if (moves.length === 0) return { state }
 
-  // Pick a reasonable move: prioritize captures/checks, then random
-  const captureMoves = moves.filter(m => m.includes('x'))
-  const checkMoves = moves.filter(m => m.includes('+'))
-  const centerMoves = moves.filter(m => m.includes('d4') || m.includes('d5') || m.includes('e4') || m.includes('e5'))
+  const difficulty = state.difficulty || 'medium'
+  let chosen: string
 
-  let pool = checkMoves.length > 0 ? checkMoves
-    : captureMoves.length > 0 ? captureMoves
-    : centerMoves.length > 0 ? centerMoves
-    : moves
+  if (difficulty === 'easy') {
+    // Easy: purely random — a beginner who just knows how pieces move
+    chosen = moves[Math.floor(Math.random() * moves.length)]
+  } else if (difficulty === 'hard') {
+    // Hard: depth 4 — looks 4 half-moves ahead with alpha-beta pruning
+    chosen = findBestMove(game, 4)
+  } else {
+    // Medium: depth 2 — looks 2 half-moves ahead
+    chosen = findBestMove(game, 2)
+  }
 
-  const chosen = pool[Math.floor(Math.random() * pool.length)]
   return makeMove(state, chosen)
 }

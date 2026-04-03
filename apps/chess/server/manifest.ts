@@ -9,12 +9,14 @@ export const manifest = {
   baseUrl,
   iframeUrl: `${baseUrl}/app`,
   permissions: [],
+  activationKeywords: ['chess', 'play a game', 'play$'],
   tools: [
     {
       name: 'chess_start_game',
       description: 'Start a new chess game. ONLY call this when the user wants to play chess. Do NOT call for math, flashcards, or any other app.',
       parameters: [
         { name: 'playerColor', type: 'string' as const, description: 'Color the player wants to play as. Defaults to white.', required: false, enum: ['white', 'black'] },
+        { name: 'difficulty', type: 'string' as const, description: 'AI difficulty level. Defaults to medium.', required: false, enum: ['easy', 'medium', 'hard'] },
       ],
     },
     {

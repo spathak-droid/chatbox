@@ -24,16 +24,18 @@ export const HostMessageSchema = z.discriminatedUnion('type', [
 export const AppMessageSchema = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('app.ready'),
-    appId: z.string(),
+    appId: z.string().optional(),
   }),
   z.object({
     type: z.literal('app.state_patch'),
-    patch: z.record(z.string(), z.unknown()),
+    patch: z.record(z.string(), z.unknown()).optional(),
+    state: z.record(z.string(), z.unknown()).optional(),
   }),
   z.object({
     type: z.literal('app.tool_request'),
-    toolName: z.string(),
-    args: z.record(z.string(), z.unknown()),
+    toolName: z.string().optional(),
+    tool: z.string().optional(),
+    args: z.record(z.string(), z.unknown()).optional(),
   }),
   z.object({
     type: z.literal('app.resize'),
@@ -42,6 +44,11 @@ export const AppMessageSchema = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('app.complete'),
     summary: z.string().optional(),
+    result: z.record(z.string(), z.unknown()).optional(),
+  }),
+  z.object({
+    type: z.literal('app.game_over'),
+    result: z.string().optional(),
   }),
   z.object({
     type: z.literal('app.error'),

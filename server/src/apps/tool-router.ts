@@ -134,8 +134,9 @@ export async function routeToolCall(
     )
 
     if (result.data) {
-      const isEnd = toolName.includes('end_game') || toolName.includes('finish_session')
-      const isCompleted = isEnd || (result.data as any)?.gameOver || (result.data as any)?.finished
+      const isEnd = toolName.includes('end') || toolName.includes('finish') || toolName.includes('stop')
+      const d = result.data as any
+      const isCompleted = isEnd || d?.gameOver || d?.finished || d?.completed || d?.done
         || (result.status === 'ok' && result.summary?.toLowerCase().includes('completed'))
       await updateSession(session.id, result.data, isCompleted ? 'completed' : 'active', result.summary)
     }

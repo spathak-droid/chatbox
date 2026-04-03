@@ -332,6 +332,7 @@
         case 'host.init':
           sessionId = msg.appSessionId
           if (msg.platformToken) platformToken = msg.platformToken
+          if (msg.platformUrl) PLATFORM_URL = msg.platformUrl
           if (msg.state) {
             state = msg.state
             render()
@@ -402,7 +403,9 @@
         } catch {}
       }
 
-      if (state.connected) {
+      // Only show connected view when we truly have access
+      const isConnected = state.connected && state.accessToken
+      if (isConnected) {
         connectView.classList.add('hidden')
         mainView.classList.remove('hidden')
         renderEvents()
@@ -457,8 +460,8 @@
       sendResize()
     }
 
-    // Platform server URL for OAuth
-    const PLATFORM_URL = 'http://localhost:3000'
+    // Platform server URL for OAuth - passed from host or derived from env
+    let PLATFORM_URL = 'http://localhost:3000'
     let platformToken = null
 
     async function requestConnect() {

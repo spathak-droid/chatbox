@@ -11,6 +11,7 @@ export const manifest: AppManifest = {
   baseUrl,
   iframeUrl: `${baseUrl}/app`,
   permissions: [],
+  activationKeywords: ['flash', 'study', 'quiz', 'review', 'learn'],
   tools: [
     {
       name: 'flashcards_start_deck',

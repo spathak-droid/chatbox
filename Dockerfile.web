@@ -3,9 +3,13 @@ WORKDIR /app
 
 RUN npm install -g pnpm@10
 
-COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
-COPY release/app/package.json ./release/app/
-RUN pnpm install --frozen-lockfile --ignore-scripts
+COPY package.json pnpm-lock.yaml ./
+COPY patches/ ./patches/
+
+# Create a single-package workspace (skip release/app which needs electron-rebuild)
+RUN printf 'packages:\n  - .\n' > pnpm-workspace.yaml
+RUN echo "shamefully-hoist=true" > .npmrc
+RUN pnpm install --no-frozen-lockfile --ignore-scripts
 
 COPY src/ ./src/
 COPY vite.web.config.ts postcss.config.js tailwind.config.js tsconfig.json ./

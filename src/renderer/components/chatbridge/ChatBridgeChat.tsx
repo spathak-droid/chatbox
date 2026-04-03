@@ -16,7 +16,7 @@ import {
   TextInput,
   Title,
 } from '@mantine/core'
-import { IconMessage, IconPlus, IconSend } from '@tabler/icons-react'
+import { IconMessage, IconPlus, IconSend, IconTrash } from '@tabler/icons-react'
 import { AppIframe } from '@/components/app-blocks/AppIframe'
 import { useAppStore } from '@/stores/appStore'
 import confetti from 'canvas-confetti'
@@ -69,6 +69,8 @@ interface Conversation {
   title: string | null
   created_at: string
   updated_at: string
+  last_message?: string | null
+  message_count?: number
 }
 
 interface ChatBridgeChatProps {
@@ -129,13 +131,30 @@ export function ChatBridgeChat({ token, user, onLogout }: ChatBridgeChatProps) {
         })
         if (res.ok) {
           const data = await res.json()
-          const loaded: ChatMessage[] = (data.messages || [])
-            .filter((m: any) => m.role === 'user' || m.role === 'assistant')
-            .map((m: any) => ({
-              id: m.id,
-              role: m.role,
-              content: m.content || '',
-            }))
+          const allMsgs = data.messages || []
+          const loaded: ChatMessage[] = []
+          for (const m of allMsgs) {
+            if (m.role === 'user') {
+              loaded.push({ id: m.id, role: 'user', content: m.content || '' })
+            } else if (m.role === 'assistant') {
+              // Attach any tool calls that follow this assistant message
+              const toolCalls: ChatMessage['toolCalls'] = []
+              for (const t of allMsgs) {
+                if (t.role === 'tool' && t.tool_name && t.created_at >= m.created_at) {
+                  const nextAssistant = allMsgs.find((a: any) => a.role === 'assistant' && a.created_at > m.created_at)
+                  if (!nextAssistant || t.created_at < nextAssistant.created_at) {
+                    toolCalls.push({ id: t.tool_call_id || t.id, name: t.tool_name, args: t.tool_args || {} })
+                  }
+                }
+              }
+              loaded.push({
+                id: m.id,
+                role: 'assistant',
+                content: m.content || '',
+                toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
+              })
+            }
+          }
           setMessages(loaded)
           scrollToBottom()
         }
@@ -151,6 +170,23 @@ export function ChatBridgeChat({ token, user, onLogout }: ChatBridgeChatProps) {
     setMessages([])
     inputRef.current?.focus()
   }, [])
+
+  const deleteConversation = useCallback(async (convId: string, e: React.MouseEvent) => {
+    e.stopPropagation()
+    try {
+      const res = await fetch(`${API_BASE}/chat/conversations/${convId}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      if (res.ok) {
+        setConversations((prev) => prev.filter((c) => c.id !== convId))
+        if (conversationId === convId) {
+          setConversationId(null)
+          setMessages([])
+        }
+      }
+    } catch {}
+  }, [token, conversationId])
 
   const sendMessage = useCallback(async (overrideText?: string) => {
     const text = (overrideText || input).trim()
@@ -527,8 +563,20 @@ export function ChatBridgeChat({ token, user, onLogout }: ChatBridgeChatProps) {
           {conversations.map((conv) => (
             <NavLink
               key={conv.id}
-              label={conv.title || 'Untitled Chat'}
-              description={new Date(conv.created_at).toLocaleDateString()}
+              label={
+                <Group justify="space-between" wrap="nowrap" gap={4}>
+                  <Text size="sm" truncate style={{ flex: 1 }}>{conv.last_message ? conv.last_message.slice(0, 40) + (conv.last_message.length > 40 ? '...' : '') : conv.title || 'New Chat'}</Text>
+                  <ActionIcon
+                    size="xs"
+                    variant="subtle"
+                    color="gray"
+                    onClick={(e) => deleteConversation(conv.id, e)}
+                  >
+                    <IconTrash size={12} />
+                  </ActionIcon>
+                </Group>
+              }
+              description={`${conv.message_count || 0} messages · ${new Date(conv.updated_at || conv.created_at).toLocaleDateString()}`}
               leftSection={<IconMessage size={16} />}
               active={conv.id === conversationId}
               onClick={() => loadConversation(conv.id)}

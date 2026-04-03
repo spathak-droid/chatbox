@@ -11,6 +11,7 @@ export const manifest: AppManifest = {
   baseUrl,
   iframeUrl: `${baseUrl}/app`,
   permissions: ['calendar.events'],
+  activationKeywords: ['calendar', 'schedule', 'study plan', 'events', 'planner'],
   tools: [
     {
       name: 'calendar_check_connection',

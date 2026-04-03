@@ -23,6 +23,7 @@ export const AppManifestSchema = z.object({
   baseUrl: z.string().url(),
   iframeUrl: z.string().url().optional(),
   permissions: z.array(z.string()).default([]),
+  activationKeywords: z.array(z.string()).default([]),
   tools: z.array(AppToolDefinitionSchema),
 })
 

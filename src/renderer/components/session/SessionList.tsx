@@ -106,40 +106,11 @@ export default function SessionList(props: Props) {
         </Tooltip>
       </Flex>
 
-      <DndContext
-        modifiers={[restrictToVerticalAxis]}
-        sensors={sensors}
-        collisionDetection={closestCenter}
-        onDragEnd={onDragEnd}
-      >
-        {sortedSessions && (
-          <SortableContext items={sortedSessions} strategy={verticalListSortingStrategy}>
-            <Virtuoso
-              style={{ flex: 1 }}
-              data={sortedSessions}
-              scrollerRef={(ref) => {
-                if (ref instanceof HTMLDivElement) {
-                  props.sessionListViewportRef.current = ref
-                }
-              }}
-              itemContent={(_index, session) => (
-                <SortableItem id={session.id}>
-                  <SessionItem
-                    selected={routerState.location.pathname === `/session/${session.id}`}
-                    session={session}
-                  />
-                </SortableItem>
-              )}
-            />
-          </SortableContext>
-        )}
-      </DndContext>
-
       <NavLink
         c="chatbox-secondary"
         className="rounded"
         mx="xs"
-        mt={4}
+        mb={4}
         label="TutorMeAI"
         leftSection={<span style={{ fontSize: 18, width: 20, textAlign: 'center' }}>🎓</span>}
         active={routerState.location.pathname === '/chatbridge'}
@@ -152,6 +123,8 @@ export default function SessionList(props: Props) {
         variant="light"
         p="xs"
       />
+
+      {/* Default Chatbox sessions hidden — TutorMeAI is the primary experience */}
     </>
   )
 }

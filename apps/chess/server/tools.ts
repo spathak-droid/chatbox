@@ -19,7 +19,8 @@ export function handleTool(
   switch (toolName) {
     case 'chess_start_game': {
       const playerColor = (args.playerColor as 'white' | 'black') || 'white'
-      const state = newGame(playerColor)
+      const difficulty = args.difficulty as 'easy' | 'medium' | 'hard' | undefined
+      const state = newGame(playerColor, difficulty)
       return {
         status: 'ok',
         data: {
@@ -27,8 +28,9 @@ export function handleTool(
           moves: state.moves,
           playerColor: state.playerColor,
           gameOver: state.gameOver,
+          ...(state.difficulty ? { difficulty: state.difficulty } : {}),
         },
-        summary: `New chess game started. You are playing as ${playerColor}. FEN: ${state.fen}`,
+        summary: `New chess game started. You are playing as ${playerColor}${difficulty ? ` on ${difficulty} difficulty` : ''}. FEN: ${state.fen}`,
       }
     }
 
