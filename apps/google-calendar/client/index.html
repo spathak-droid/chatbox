@@ -352,6 +352,7 @@
         case 'host.init':
           sessionId = msg.appSessionId
           if (msg.platformToken) platformToken = msg.platformToken
+          if (msg.platformUrl) PLATFORM_URL = msg.platformUrl
           if (msg.state) {
             state = msg.state
             render()
@@ -480,8 +481,8 @@
       sendResize()
     }
 
-    // Platform server URL for OAuth
-    const PLATFORM_URL = 'http://localhost:3000'
+    // Platform server URL for OAuth — updated via host.init from parent
+    let PLATFORM_URL = 'http://localhost:3000'
     let platformToken = null
 
     async function requestConnect() {
