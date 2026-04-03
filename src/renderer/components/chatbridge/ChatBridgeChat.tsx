@@ -224,6 +224,7 @@ export function ChatBridgeChat({ token, user, onLogout }: ChatBridgeChatProps) {
         body: JSON.stringify({
           conversationId: conversationId || undefined,
           message: text,
+          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
         }),
       })
 

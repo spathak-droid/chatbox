@@ -16,6 +16,7 @@ chatRoutes.post('/send', async (req, res, next) => {
     const body = z.object({
       conversationId: z.string().uuid().optional(),
       message: z.string().min(1),
+      timezone: z.string().optional(),
     }).parse(req.body)
 
     const userId = req.user!.id
@@ -70,7 +71,7 @@ chatRoutes.post('/send', async (req, res, next) => {
     res.write(`data: ${JSON.stringify({ type: 'conversation', conversationId })}\n\n`)
 
     const authToken = (req.headers.authorization || '').replace('Bearer ', '')
-    await streamChatWithTools(messages, conversationId, userId, res, authToken)
+    await streamChatWithTools(messages, conversationId, userId, res, authToken, body.timezone)
   } catch (err) {
     if (!res.headersSent) next(err)
   }

@@ -18,7 +18,8 @@ export async function streamChatWithTools(
   conversationId: string,
   userId: string,
   res: Response,
-  authToken?: string
+  authToken?: string,
+  clientTimezone?: string,
 ) {
   const toolSchemas = await getAllToolSchemas()
 
@@ -66,18 +67,26 @@ export async function streamChatWithTools(
 
   // Always set/replace system prompt to ensure latest instructions
   const sysIdx = messages.findIndex((m) => m.role === 'system')
+  // Use client timezone if available, otherwise fall back to server timezone
+  const tz = clientTimezone || Intl.DateTimeFormat().resolvedOptions().timeZone || 'America/New_York'
   const now = new Date()
-  const currentDate = now.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })
-  const tzOffset = -now.getTimezoneOffset()
-  const tzSign = tzOffset >= 0 ? '+' : '-'
-  const tzHours = String(Math.floor(Math.abs(tzOffset) / 60)).padStart(2, '0')
-  const tzMins = String(Math.abs(tzOffset) % 60).padStart(2, '0')
-  const tzString = `${tzSign}${tzHours}:${tzMins}`
+  const currentDate = now.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', timeZone: tz })
+  const currentTime = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', timeZone: tz })
+  // Compute the UTC offset for the client's timezone
+  const tzFormatter = new Intl.DateTimeFormat('en-US', { timeZone: tz, timeZoneName: 'shortOffset' })
+  const tzParts = tzFormatter.formatToParts(now)
+  const tzOffsetStr = tzParts.find(p => p.type === 'timeZoneName')?.value || 'UTC'
+  // Convert "GMT-5" style to "-05:00" style
+  const tzMatch = tzOffsetStr.match(/GMT([+-])(\d+)(?::(\d+))?/)
+  const tzString = tzMatch
+    ? `${tzMatch[1]}${tzMatch[2].padStart(2, '0')}:${(tzMatch[3] || '00').padStart(2, '0')}`
+    : '+00:00'
+  const todayStr = now.toLocaleDateString('en-CA', { timeZone: tz }) // YYYY-MM-DD format
 
   const systemContent = `You are TutorMeAI, a friendly tutor for students ages 8-14. You have 4 apps: Chess, Math Practice, Flashcards, and Calendar.
 
-Today is ${currentDate}. The user's timezone offset is UTC${tzString}.
-When creating calendar events, ALWAYS use dates relative to TODAY and ALWAYS include the timezone offset (${tzString}) in all dateTime values. Example format: "${now.toISOString().split('T')[0]}T15:00:00${tzString}".
+Today is ${currentDate}, current time is ${currentTime} (timezone: ${tz}, UTC${tzString}).
+When creating calendar events, ALWAYS use dates relative to TODAY (${todayStr}) and ALWAYS include the timezone offset (${tzString}) in all dateTime values. Example format: "${todayStr}T15:00:00${tzString}".
 
 ## STEP-BY-STEP — follow this EXACTLY for every message:
 
