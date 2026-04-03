@@ -79,7 +79,27 @@ interface ChatBridgeChatProps {
   onLogout: () => void
 }
 
+// Inject keyframe animations once
+const ANIMATIONS_INJECTED = { done: false }
+function injectAnimations() {
+  if (ANIMATIONS_INJECTED.done) return
+  ANIMATIONS_INJECTED.done = true
+  const style = document.createElement('style')
+  style.textContent = `
+    @keyframes thinking-bounce {
+      0%, 80%, 100% { transform: scale(0.6); opacity: 0.4; }
+      40% { transform: scale(1); opacity: 1; }
+    }
+    @keyframes pulse-glow {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(34, 139, 230, 0); }
+      50% { box-shadow: 0 0 12px 4px rgba(34, 139, 230, 0.4); }
+    }
+  `
+  document.head.appendChild(style)
+}
+
 export function ChatBridgeChat({ token, user, onLogout }: ChatBridgeChatProps) {
+  injectAnimations()
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
@@ -707,16 +727,18 @@ export function ChatBridgeChat({ token, user, onLogout }: ChatBridgeChatProps) {
 
         {/* Input — matches Chatbox InputBox styling */}
         <Box pt={0} pb="sm" px="sm" style={{ flex: '0 0 auto' }}>
-          <Stack className="max-w-4xl mx-auto" gap="xs">
+          <Stack className="max-w-4xl mx-auto" gap={4}>
             <Stack
-              className="rounded-md justify-between px-3 py-2"
+              className="rounded-md px-3 py-2"
               style={{
                 background: 'var(--chatbox-background-secondary, var(--mantine-color-dark-7))',
                 border: '1px solid var(--chatbox-border-primary, var(--mantine-color-dark-4))',
                 minHeight: 92,
               }}
               gap="xs"
+              justify="space-between"
             >
+              {/* Textarea + send button */}
               <Flex align="flex-end" gap={4}>
                 <textarea
                   ref={inputRef as any}
@@ -747,21 +769,28 @@ export function ChatBridgeChat({ token, user, onLogout }: ChatBridgeChatProps) {
                 <ActionIcon
                   size={32}
                   variant="filled"
-                  color={loading ? 'dark' : 'chatbox-brand'}
+                  color={loading ? 'dark' : undefined}
                   radius="xl"
                   onClick={() => loading ? null : sendMessage()}
                   disabled={!loading && !input.trim()}
                   className="shrink-0 mb-1"
-                  style={!loading && !input.trim() ? { backgroundColor: 'rgba(222, 226, 230, 1)' } : undefined}
+                  style={!loading && !input.trim()
+                    ? { backgroundColor: 'rgba(222, 226, 230, 1)' }
+                    : !loading ? { backgroundColor: 'var(--chatbox-tint-brand, #228be6)' } : undefined}
                 >
                   {loading ? (
                     <Loader size={16} color="white" />
                   ) : (
-                    <IconSend size={16} />
+                    <IconSend size={16} color="white" />
                   )}
                 </ActionIcon>
               </Flex>
+              {/* Bottom toolbar — model indicator */}
+              <Flex align="center" justify="flex-end" gap="xs" px={4}>
+                <Text size="xs" c="dimmed">🎓 TutorMeAI</Text>
+              </Flex>
             </Stack>
+            <Text size="xs" c="dimmed" ta="center">AI-generated content may be inaccurate. Please verify important information.</Text>
           </Stack>
         </Box>
       </Flex>
@@ -829,47 +858,68 @@ function MessageBubble({
 }) {
   const isUser = message.role === 'user'
 
-  return (
-    <Stack gap="xs">
-      <Box className="max-w-4xl mx-auto w-full" px="md">
-        <Flex gap="sm" align="flex-start" direction={isUser ? 'row-reverse' : 'row'}>
-          {!isUser && (
-            <Avatar size="sm" radius="xl" color="violet" mt={4} className="shrink-0">
-              AI
-            </Avatar>
-          )}
-          <Box
-            className={`rounded-lg px-4 py-2 ${isUser ? 'bg-chatbox-background-brand-secondary' : 'bg-chatbox-background-secondary'}`}
-            maw="80%"
-            style={{ wordBreak: 'break-word' }}
-          >
-            <Text
-              size="sm"
-              c={isUser ? 'chatbox-brand' : 'chatbox-primary'}
-              style={{ whiteSpace: 'pre-wrap' }}
-            >
-              {message.content || (message.toolCalls?.length ? '' : '...')}
-            </Text>
-
-            {/* Tool call indicators */}
-            {message.toolCalls && message.toolCalls.length > 0 && (
-              <Stack gap={4} mt="xs">
-                {message.toolCalls.map((tc) => (
-                  <Badge key={tc.id} size="xs" variant="light" color="gray" radius="sm">
-                    {tc.name}
-                  </Badge>
-                ))}
-              </Stack>
-            )}
-          </Box>
-          {isUser && (
-            <Avatar size="sm" radius="xl" color="blue" mt={4} className="shrink-0">
-              U
-            </Avatar>
-          )}
+  if (isUser) {
+    // User message — gray pill with avatar, right-aligned
+    return (
+      <Flex gap="sm" align="flex-start" justify="flex-end" px="md" py="xs">
+        <Box
+          className="rounded-2xl px-4 py-2"
+          style={{
+            background: 'var(--chatbox-background-secondary, var(--mantine-color-dark-6))',
+          }}
+        >
+          <Text size="sm" c="chatbox-primary" style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+            {message.content}
+          </Text>
+        </Box>
+        <Avatar size={36} radius="xl" color="blue" className="shrink-0">
+          <IconMessage size={18} />
+        </Avatar>
       </Flex>
+    )
+  }
 
-      {/* App iframes now render in the right panel */}
-    </Stack>
+  // Assistant message — avatar + text, no bubble background, like Chatbox
+  const isThinking = !message.content && (!message.toolCalls || message.toolCalls.length === 0)
+  const isStreaming = !!message.content && message.content.length > 0 && !message.content.endsWith('\n\n')
+
+  return (
+    <Flex gap="sm" align="flex-start" px="md" py="xs">
+      <Avatar
+        size={36}
+        radius="xl"
+        color="green"
+        className="shrink-0"
+        style={isThinking ? {
+          animation: 'pulse-glow 1.5s ease-in-out infinite',
+        } : undefined}
+      >
+        🎓
+      </Avatar>
+      <Box style={{ flex: 1, wordBreak: 'break-word' }}>
+        {isThinking ? (
+          <Flex gap={6} align="center" py={4}>
+            <Box className="thinking-dot" style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--chatbox-tint-brand, #228be6)', animation: 'thinking-bounce 1.4s ease-in-out infinite', animationDelay: '0s' }} />
+            <Box className="thinking-dot" style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--chatbox-tint-brand, #228be6)', animation: 'thinking-bounce 1.4s ease-in-out infinite', animationDelay: '0.2s' }} />
+            <Box className="thinking-dot" style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--chatbox-tint-brand, #228be6)', animation: 'thinking-bounce 1.4s ease-in-out infinite', animationDelay: '0.4s' }} />
+          </Flex>
+        ) : (
+          <Text size="sm" c="chatbox-primary" style={{ whiteSpace: 'pre-wrap', lineHeight: 1.7 }}>
+            {message.content}
+          </Text>
+        )}
+
+        {/* Tool call indicators */}
+        {message.toolCalls && message.toolCalls.length > 0 && (
+          <Flex gap={4} mt="xs" wrap="wrap">
+            {message.toolCalls.map((tc) => (
+              <Badge key={tc.id} size="xs" variant="light" color="gray" radius="sm">
+                {tc.name}
+              </Badge>
+            ))}
+          </Flex>
+        )}
+      </Box>
+    </Flex>
   )
 }
