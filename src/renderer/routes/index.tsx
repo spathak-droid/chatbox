@@ -2,7 +2,7 @@ import NiceModal from '@ebay/nice-modal-react'
 import { ActionIcon, Avatar, Box, Button, Divider, Flex, Paper, ScrollArea, Space, Stack, Text } from '@mantine/core'
 import type { CopilotDetail, ImageSource, Session } from '@shared/types'
 import { IconChevronLeft, IconChevronRight, IconMessageCircle2Filled, IconX } from '@tabler/icons-react'
-import { createFileRoute, useNavigate, useRouterState } from '@tanstack/react-router'
+import { createFileRoute, useRouterState } from '@tanstack/react-router'
 import { zodValidator } from '@tanstack/zod-adapter'
 import clsx from 'clsx'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -44,27 +44,394 @@ export const Route = createFileRoute('/')({
 })
 
 function Index() {
-  const navigate = useNavigate()
+  const { t } = useTranslation()
+  const isSmallScreen = useIsSmallScreen()
+  const messageLayout = useSettingsStore((s) => s.messageLayout)
+  const [tempMessageLayout, setTempMessageLayout] = useState<'left' | 'bubble' | undefined>(undefined)
+
+  const setSettings = useSettingsStore((s) => s.setSettings)
+  const newSessionState = useUIStore((s) => s.newSessionState)
+  const setNewSessionState = useUIStore((s) => s.setNewSessionState)
+  const addSessionKnowledgeBase = useUIStore((s) => s.addSessionKnowledgeBase)
+  const showCopilotsInNewSession = useUIStore((s) => s.showCopilotsInNewSession)
+  const widthFull = useUIStore((s) => s.widthFull)
+  const sessionWebBrowsingMap = useUIStore((s) => s.sessionWebBrowsingMap)
+  const setSessionWebBrowsing = useUIStore((s) => s.setSessionWebBrowsing)
+  const clearSessionWebBrowsing = useUIStore((s) => s.clearSessionWebBrowsing)
+  const [session, setSession] = useState<Session>({
+    id: 'new',
+    ...initEmptyChatSession(),
+  })
+
+  const { providers } = useProviders()
+  const language = useLanguage()
+  const hasLicense = useSettingsStore((s) => Boolean(s.licenseKey))
+  const isLoggedIn = useAuthInfoStore((s) => Boolean(s.accessToken && s.refreshToken))
+  const welcomeCardMode = useMemo(
+    () => getHomeWelcomeCardMode({ providerCount: providers.length, isLoggedIn, hasLicense }),
+    [providers.length, isLoggedIn, hasLicense]
+  )
+
+  const selectedModel = useMemo(() => {
+    if (session.settings?.provider && session.settings?.modelId) {
+      return {
+        provider: session.settings.provider,
+        modelId: session.settings.modelId,
+      }
+    }
+  }, [session.settings?.provider, session.settings?.modelId])
+
+  const { copilots: myCopilots } = useMyCopilots()
+  const { copilots: remoteCopilots } = useRemoteCopilotsByCursor({ limit: 10 })
+  const selectedCopilotId = useMemo(() => session?.copilotId, [session?.copilotId])
+  const selectedCopilot = useMemo(
+    () => myCopilots.find((c) => c.id === selectedCopilotId) || remoteCopilots.find((c) => c.id === selectedCopilotId),
+    [myCopilots, remoteCopilots, selectedCopilotId]
+  )
+  useEffect(() => {
+    setSession((old) => ({
+      ...old,
+      assistantAvatarKey:
+        selectedCopilot?.avatar?.type === 'storage-key' ? selectedCopilot.avatar.storageKey : undefined,
+      picUrl: selectedCopilot?.avatar?.type === 'url' ? selectedCopilot.avatar.url : selectedCopilot?.picUrl,
+      backgroundImage: selectedCopilot?.backgroundImage,
+      name: selectedCopilot?.name || 'Untitled',
+      messages: selectedCopilot
+        ? [
+            {
+              id: uuidv4(),
+              role: 'system',
+              contentParts: [
+                {
+                  type: 'text',
+                  text: selectedCopilot.prompt,
+                },
+              ],
+            },
+          ]
+        : initEmptyChatSession().messages,
+    }))
+  }, [selectedCopilot])
+
+  const routerState = useRouterState()
+  useEffect(() => {
+    const { copilotId, copilot } = routerState.location.search
+    if (copilot) {
+      let c: CopilotDetail | null = null
+      try {
+        c = JSON.parse(copilot) as CopilotDetail
+      } catch (e) {
+        return
+      }
+
+      setSession((old) => ({
+        ...old,
+        copilotId: c.id,
+        assistantAvatarKey: c.avatar?.type === 'storage-key' ? c.avatar.storageKey : undefined,
+        picUrl: c.avatar?.type === 'url' ? c.avatar.url : c.picUrl,
+        backgroundImage: c.backgroundImage,
+        name: c.name || 'Untitled',
+        messages: [
+          {
+            id: uuidv4(),
+            role: 'system',
+            contentParts: [
+              {
+                type: 'text',
+                text: c.prompt,
+              },
+            ],
+          },
+        ],
+      }))
+    } else if (copilotId) {
+      setSession((old) => ({ ...old, copilotId }))
+    }
+  }, [routerState.location.search])
+
+  const handleSubmit = useCallback(
+    async ({ constructedMessage, needGenerating = true, onUserMessageReady }: InputBoxPayload) => {
+      const newSession = await createSessionStore({
+        name: session.name,
+        type: 'chat',
+        assistantAvatarKey: session.assistantAvatarKey,
+        picUrl: session.picUrl,
+        backgroundImage: session.backgroundImage,
+        messages: session.messages,
+        copilotId: session.copilotId,
+        settings: session.settings,
+      })
+
+      if (session.copilotId) {
+        void remote
+          .recordCopilotUsage({ id: session.copilotId, action: 'create_session' })
+          .catch((error) => console.warn('[recordCopilotUsage] failed', error))
+      }
+
+      // Transfer knowledge base from newSessionState to the actual session
+      if (newSessionState.knowledgeBase) {
+        addSessionKnowledgeBase(newSession.id, newSessionState.knowledgeBase)
+        // Clear newSessionState after transfer
+        setNewSessionState({})
+      }
+
+      // Transfer web browsing setting from "new" session to the actual session
+      const newSessionWebBrowsing = sessionWebBrowsingMap['new']
+      if (newSessionWebBrowsing !== undefined) {
+        setSessionWebBrowsing(newSession.id, newSessionWebBrowsing)
+        clearSessionWebBrowsing('new')
+      }
+
+      switchCurrentSession(newSession.id)
+
+      void submitNewUserMessage(newSession.id, {
+        newUserMsg: constructedMessage,
+        needGenerating,
+        onUserMessageReady,
+      })
+    },
+    [
+      session,
+      addSessionKnowledgeBase,
+      newSessionState.knowledgeBase,
+      setNewSessionState,
+      sessionWebBrowsingMap,
+      setSessionWebBrowsing,
+      clearSessionWebBrowsing,
+    ]
+  )
+
+  const onSelectModel = useCallback((p: string, m: string) => {
+    setSession((old) => ({
+      ...old,
+      settings: {
+        ...(old.settings || {}),
+        provider: p,
+        modelId: m,
+      },
+    }))
+  }, [])
+
+  const onClickSessionSettings = useCallback(async () => {
+    const res: Session = await NiceModal.show('session-settings', {
+      session,
+      disableAutoSave: true,
+    })
+    if (res) {
+      setSession((old) => ({
+        ...old,
+        ...res,
+      }))
+    }
+    return true
+  }, [session])
 
   return (
     <Page title="">
       <div className="p-0 flex flex-col h-full">
-        <Stack align="center" justify="center" gap="lg" flex={1}>
-          <Text style={{ fontSize: 48 }}>🎓</Text>
-          <Text fw="700" size="xl">
-            TutorMeAI
-          </Text>
-          <Text c="chatbox-secondary" size="sm" maw={360} ta="center">
-            Your AI tutor with interactive apps — chess, math practice, flashcards, and study planning.
-          </Text>
-          <Button
-            variant="filled"
-            size="lg"
-            radius="md"
-            onClick={() => navigate({ to: '/chatbridge' })}
-          >
-            Go to TutorMeAI
-          </Button>
+        {messageLayout || welcomeCardMode !== 'none' ? (
+          <Stack align="center" justify="center" gap="sm" flex={1}>
+            <HomepageIcon className="h-8" />
+            <Text fw="600" size={isSmallScreen ? 'sm' : 'md'}>
+              {t('What can I help you with today?')}
+            </Text>
+          </Stack>
+        ) : (
+          <Stack align="center" justify="center" gap="sm" flex={1} p="sm">
+            <Stack
+              align="center"
+              justify="center"
+              gap="lg"
+              w={isSmallScreen ? '100%' : '80%'}
+              maw={386}
+              p="xl"
+              className="border border-solid border-chatbox-border-primary rounded-lg relative"
+            >
+              <div className="absolute top-0 right-0">
+                <ActionIcon
+                  variant="transparent"
+                  color="chatbox-tertiary"
+                  m={10}
+                  onClick={() => setSettings({ messageLayout: 'left' })}
+                >
+                  <ScalableIcon icon={IconX} size={20} className="text-chatbox-tint-tertiary" />
+                </ActionIcon>
+              </div>
+              <Text size="md" fw="600">
+                {t('Message Layout')}
+              </Text>
+              <Stack gap="sm">
+                <MessageLayoutSelector
+                  w="100%"
+                  size="sm"
+                  value={tempMessageLayout || 'left'}
+                  onValueChange={(val) => setTempMessageLayout(val)}
+                />
+
+                <Text size="xs" c="chatbox-secondary">
+                  {t('You can change this setting later in Settings → ')}
+                  <a className="cursor-pointer !text-chatbox-tint-brand" onClick={() => navigateToSettings('chat')}>
+                    {t('Conversation Settings')}
+                  </a>
+                </Text>
+              </Stack>
+
+              <Button
+                variant="filled"
+                size="md"
+                className="w-full"
+                onClick={() => setSettings({ messageLayout: tempMessageLayout || 'left' })}
+              >
+                {t('Save')}
+              </Button>
+            </Stack>
+          </Stack>
+        )}
+
+        {welcomeCardMode !== 'none' && (
+          <Box px="sm">
+            <Paper
+              radius="md"
+              shadow="none"
+              withBorder
+              py="md"
+              px="sm"
+              mb="md"
+              className={widthFull ? 'w-full' : 'w-full max-w-4xl mx-auto'}
+            >
+              <Stack gap="sm">
+                <Stack gap="xxs" align="center">
+                  <Text fw={600} className="text-center">
+                    {t('Welcome to Chatbox!')}
+                  </Text>
+
+                  <Text size="xs" c="chatbox-tertiary" className="text-center">
+                    {welcomeCardMode === 'no-license' ? t('No licenses found') : t('Login to start chatting with AI')}
+                  </Text>
+                </Stack>
+
+                <Flex gap="xs" justify="center" align="center" wrap="wrap">
+                  {welcomeCardMode === 'no-license' ? (
+                    <>
+                      <Button
+                        size="xs"
+                        variant="filled"
+                        h={32}
+                        miw={160}
+                        fw={600}
+                        flex="0 1 auto"
+                        onClick={() => {
+                          trackJkClickEvent(JK_EVENTS.FREE_LICENSE_CLAIM_CLICK, {
+                            pageName: JK_PAGE_NAMES.CHAT_PAGE,
+                          })
+                          platform.openLink(
+                            `https://chatboxai.app/redirect_app/claim_free_plan/${language}/?utm_source=app&utm_content=provider_cb_login_claim_free`
+                          )
+                        }}
+                      >
+                        {t('Claim Free Plan')}
+                      </Button>
+                      <Button
+                        size="xs"
+                        variant="subtle"
+                        c="chatbox-tertiary"
+                        h={32}
+                        fw={400}
+                        flex="0 1 auto"
+                        onClick={() => {
+                          platform.openLink(
+                            `https://chatboxai.app/redirect_app/view_more_plans/${language}/?utm_source=app&utm_content=provider_cb_login_more_plans`
+                          )
+                        }}
+                      >
+                        {t('View More Plans')}
+                      </Button>
+                    </>
+                  ) : (
+                    <>
+                      <Button
+                        size="xs"
+                        variant="filled"
+                        h={32}
+                        miw={160}
+                        fw={600}
+                        flex="0 1 auto"
+                        onClick={() => {
+                          trackJkClickEvent(JK_EVENTS.LOGIN_BUTTON_CLICK, {
+                            pageName: JK_PAGE_NAMES.CHAT_PAGE,
+                          })
+                          navigateToSettings('chatbox-ai')
+                        }}
+                      >
+                        {t('Login Chatbox AI')}
+                      </Button>
+                      <Button
+                        size="xs"
+                        variant="subtle"
+                        c="chatbox-tertiary"
+                        h={32}
+                        fw={400}
+                        flex="0 1 auto"
+                        onClick={() => navigateToSettings('provider')}
+                      >
+                        {t('Other options')}
+                      </Button>
+                    </>
+                  )}
+                </Flex>
+              </Stack>
+            </Paper>
+          </Box>
+        )}
+
+        <Stack gap="sm">
+          {session.copilotId ? (
+            <Box px="md">
+              <Stack gap="sm" className={widthFull ? 'w-full' : 'w-full max-w-4xl mx-auto'}>
+                <Flex align="center" gap="sm">
+                  <CopilotItem
+                    name={session.name}
+                    avatar={
+                      session.assistantAvatarKey
+                        ? { type: 'storage-key', storageKey: session.assistantAvatarKey }
+                        : undefined
+                    }
+                    picUrl={session.picUrl}
+                    selected
+                    onClick={() => onClickSessionSettings?.()}
+                  />
+                  <ActionIcon
+                    size={32}
+                    radius={16}
+                    c="chatbox-tertiary"
+                    bg="#F1F3F5"
+                    onClick={() => setSession((old) => ({ ...old, copilotId: undefined }))}
+                  >
+                    <ScalableIcon icon={IconX} size={24} />
+                  </ActionIcon>
+                </Flex>
+
+                <Text c="chatbox-secondary" className="line-clamp-5">
+                  {session.messages[0]?.contentParts?.map((part) => (part.type === 'text' ? part.text : '')).join('') ||
+                    ''}
+                </Text>
+              </Stack>
+            </Box>
+          ) : (
+            showCopilotsInNewSession && (
+              <CopilotPicker onSelect={(copilot) => setSession((old) => ({ ...old, copilotId: copilot?.id }))} />
+            )
+          )}
+
+          <InputBox
+            sessionType="chat"
+            sessionId="new"
+            model={selectedModel}
+            // fullWidth
+            onSelectModel={onSelectModel}
+            onClickSessionSettings={onClickSessionSettings}
+            onSubmit={handleSubmit}
+          />
         </Stack>
       </div>
     </Page>
