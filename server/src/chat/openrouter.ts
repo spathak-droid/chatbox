@@ -2,6 +2,7 @@ import { config } from '../config.js'
 import { getAllToolSchemas, findAppByToolName, getCachedApps } from '../apps/registry.js'
 import { routeToolCall, DESTRUCTIVE_TOOLS } from '../apps/tool-router.js'
 import { getSessionsForConversation } from '../apps/session.js'
+import { query } from '../db/client.js'
 import type { Response } from 'express'
 import { langfuse } from '../lib/langfuse.js'
 
@@ -65,7 +66,18 @@ export async function streamChatWithTools(
 
   // Always set/replace system prompt to ensure latest instructions
   const sysIdx = messages.findIndex((m) => m.role === 'system')
+  const now = new Date()
+  const currentDate = now.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })
+  const tzOffset = -now.getTimezoneOffset()
+  const tzSign = tzOffset >= 0 ? '+' : '-'
+  const tzHours = String(Math.floor(Math.abs(tzOffset) / 60)).padStart(2, '0')
+  const tzMins = String(Math.abs(tzOffset) % 60).padStart(2, '0')
+  const tzString = `${tzSign}${tzHours}:${tzMins}`
+
   const systemContent = `You are TutorMeAI, a friendly tutor for students ages 8-14. You have 4 apps: Chess, Math Practice, Flashcards, and Calendar.
+
+Today is ${currentDate}. The user's timezone offset is UTC${tzString}.
+When creating calendar events, ALWAYS use dates relative to TODAY and ALWAYS include the timezone offset (${tzString}) in all dateTime values. Example format: "${now.toISOString().split('T')[0]}T15:00:00${tzString}".
 
 ## STEP-BY-STEP — follow this EXACTLY for every message:
 
@@ -76,10 +88,11 @@ Step 1: What app does the user want?
 - "calendar" / "schedule" → CALENDAR
 - none of the above → NO APP (just chat)
 
-Step 2: Is that app already active? (check app context below)
-- YES, same app already active → Say "You're already on it! Keep going!" Do NOT call any tools.
-- NO, a DIFFERENT app is active → Call end/finish tool for the OLD app, then call start tool for the NEW app. Example: chess active + user says "math" → call chess_end_game then math_start_session.
-- NO app is active → Call the start tool for the requested app.
+Step 2: Is that EXACT app already active? (check "[Active app: X]" in app context below)
+- YES, the EXACT SAME app is listed as "[Active app: X]" → Do NOT call start tools. Just chat about it.
+- NO, a DIFFERENT app is active → Call the start tool for the NEW app. The platform auto-closes the old app.
+- NO app is active (all completed or none) → Call the start tool for the requested app.
+- A "Completed app" is NOT active. If user asks for an app that was previously completed, start it fresh.
 
 Step 3: Pick tool parameters using defaults. NEVER ask the user.
 - math_start_session: topic="addition", difficulty="easy"
@@ -118,7 +131,9 @@ Math: Read currentIndex, correct, incorrect. Know which problem they're on. If t
   // ============ DYNAMIC TOOL SCOPING ============
   // Only send tools relevant to the user's current message
   const lastUserMessage = messages.filter(m => m.role === 'user').pop()?.content?.toLowerCase() || ''
-  const scopedTools = scopeToolsToIntent(toolSchemas, lastUserMessage)
+  // Find the currently active app (if any) so follow-up messages scope to it
+  const activeAppId = relevantSessions.find(s => s.status === 'active')?.appId || null
+  const scopedTools = scopeToolsToIntent(toolSchemas, lastUserMessage, activeAppId)
 
   // Set SSE headers if not already set by the caller
   if (!res.headersSent) {
@@ -135,6 +150,10 @@ Math: Read currentIndex, correct, incorrect. Know which problem they're on. If t
 
   const MAX_TOOL_ROUNDS = 5
   let currentMessages = [...messages]
+
+  // Track tool calls and results for DB persistence
+  const executedToolCalls: Array<{ id: string; name: string; args: string; result: string }> = []
+  let fullResponseText = ''
 
   for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
     // ============ PASS 1: Non-streaming call to get tool proposals ============
@@ -186,7 +205,9 @@ Math: Read currentIndex, correct, incorrect. Know which problem they're on. If t
         // First round, no tools — pure chat. Send Pass 1 text directly.
         if (pass1Content) {
           res.write(`data: ${JSON.stringify({ type: 'text', content: pass1Content })}\n\n`)
+          fullResponseText = pass1Content
         }
+        await persistAssistantMessage(conversationId, fullResponseText, executedToolCalls)
         res.write('data: [DONE]\n\n')
         res.end()
         return
@@ -195,62 +216,23 @@ Math: Read currentIndex, correct, incorrect. Know which problem they're on. If t
       break
     }
 
-    // ============ GUARDRAIL: Validate tool calls against user intent ============
-    const lastUserMsg = currentMessages.filter(m => m.role === 'user').pop()?.content?.toLowerCase() || ''
+    // Only allow tool calls for tools that were actually in the scoped list.
+    // LLMs can hallucinate tool names from conversation history even when
+    // those tools aren't in the current tools array.
+    const scopedToolNames = new Set(scopedTools.map(t => t.function?.name).filter(Boolean))
     const validatedToolCalls = pass1ToolCalls.filter(tc => {
-      const name = tc.function.name
-      // Allow end/finish tools always (cleanup is fine)
-      if (name.includes('end_game') || name.includes('finish')) return true
-      // Block start tools that contradict user intent — driven by manifest activationKeywords
-      const isStartTool = name.includes('start')
-      if (isStartTool) {
-        const app = findAppByToolName(name)
-        const keywords = app?.activationKeywords ?? []
-        if (keywords.length > 0) {
-          const pattern = new RegExp(keywords.join('|'), 'i')
-          if (!pattern.test(lastUserMsg)) {
-            console.log(`[GUARDRAIL] Blocked ${name} — user said: "${lastUserMsg.slice(0, 60)}" (keywords: ${keywords.join(', ')})`)
-            return false
-          }
-        }
-      }
-      return true
+      if (scopedToolNames.has(tc.function.name)) return true
+      console.log(`[GUARDRAIL] Blocked hallucinated tool: ${tc.function.name} (not in scoped tools)`)
+      return false
     })
 
-    // If guardrail removed all start tools but user clearly wants an app, inject the right one
-    // Uses manifest activationKeywords to find the matching app generically
-    const hasStartTool = validatedToolCalls.some(tc => tc.function.name.includes('start'))
-    const hasEndTool = validatedToolCalls.some(tc => tc.function.name.includes('end') || tc.function.name.includes('finish') || tc.function.name.includes('stop'))
-    if (!hasStartTool && !hasEndTool && validatedToolCalls.length > 0) {
-      let correctTool: string | null = null
-      let correctArgs = '{}'
-      for (const app of getCachedApps()) {
-        const keywords = app.activationKeywords ?? []
-        if (keywords.length > 0) {
-          const pattern = new RegExp(keywords.join('|'), 'i')
-          if (pattern.test(lastUserMsg)) {
-            const startTool = app.tools.find(t => t.name.includes('start'))
-            if (startTool) {
-              correctTool = startTool.name
-              break
-            }
-          }
-        }
-      }
-      if (correctTool) {
-        console.log(`[GUARDRAIL] Injecting correct tool: ${correctTool}`)
-        validatedToolCalls.push({
-          id: `guardrail-${Date.now()}`,
-          function: { name: correctTool, arguments: correctArgs },
-        })
-      }
-    }
-
-    // If all tool calls were blocked by guardrails, send Pass 1 text and end
+    // If no tool calls after validation, send Pass 1 text and end
     if (validatedToolCalls.length === 0) {
       if (pass1Content) {
         res.write(`data: ${JSON.stringify({ type: 'text', content: pass1Content })}\n\n`)
+        fullResponseText = pass1Content
       }
+      await persistAssistantMessage(conversationId, fullResponseText, executedToolCalls)
       res.write('data: [DONE]\n\n')
       res.end()
       return
@@ -296,6 +278,7 @@ Math: Read currentIndex, correct, incorrect. Know which problem they're on. If t
       }
 
       // End response — no Pass 2 text generation for destructive tools
+      await persistAssistantMessage(conversationId, fullResponseText, executedToolCalls)
       res.write('data: [DONE]\n\n')
       res.end()
       return
@@ -322,6 +305,8 @@ Math: Read currentIndex, correct, incorrect. Know which problem they're on. If t
       const result = await routeToolCall(toolName, args, { userId, conversationId, authToken })
 
       res.write(`data: ${JSON.stringify({ type: 'tool_result', toolCallId: toolCall.id, toolName, result })}\n\n`)
+
+      executedToolCalls.push({ id: toolCall.id, name: toolName, args: toolCall.function.arguments, result: JSON.stringify(result) })
 
       currentMessages.push({
         role: 'tool',
@@ -384,6 +369,7 @@ Math: Read currentIndex, correct, incorrect. Know which problem they're on. If t
 
         if (delta?.content) {
           res.write(`data: ${JSON.stringify({ type: 'text', content: delta.content })}\n\n`)
+          fullResponseText += delta.content
         }
       } catch {
         // Skip malformed chunks
@@ -396,8 +382,52 @@ Math: Read currentIndex, correct, incorrect. Know which problem they're on. If t
     model: config.openrouterModel,
     input: currentMessages,
   })
+
+  await persistAssistantMessage(conversationId, fullResponseText, executedToolCalls)
   res.write('data: [DONE]\n\n')
   res.end()
+}
+
+// ============ MESSAGE PERSISTENCE ============
+// Anthropic API requires: assistant (with tool_use) → tool (results) → assistant (text)
+async function persistAssistantMessage(
+  conversationId: string,
+  text: string,
+  toolCalls: Array<{ id: string; name: string; args: string; result: string }>
+) {
+  try {
+    if (toolCalls.length > 0) {
+      // 1. Assistant message with tool_calls (no text — tool_use and text go separately)
+      const toolCallsMeta = JSON.stringify(toolCalls.map(tc => ({ id: tc.id, name: tc.name, args: tc.args })))
+      await query(
+        `INSERT INTO messages (conversation_id, role, content, tool_result)
+         VALUES ($1, 'assistant', '', $2)`,
+        [conversationId, toolCallsMeta]
+      )
+      // 2. Tool results (one per tool)
+      for (const tc of toolCalls) {
+        await query(
+          `INSERT INTO messages (conversation_id, role, content, tool_name, tool_call_id)
+           VALUES ($1, 'tool', $2, $3, $4)`,
+          [conversationId, tc.result, tc.name, tc.id]
+        )
+      }
+      // 3. Assistant text response (separate message after tool results)
+      if (text) {
+        await query(
+          'INSERT INTO messages (conversation_id, role, content) VALUES ($1, $2, $3)',
+          [conversationId, 'assistant', text]
+        )
+      }
+    } else if (text) {
+      await query(
+        'INSERT INTO messages (conversation_id, role, content) VALUES ($1, $2, $3)',
+        [conversationId, 'assistant', text]
+      )
+    }
+  } catch (err) {
+    console.error('[PERSIST] Failed to save assistant message:', err)
+  }
 }
 
 // ============ TOOL HISTORY SUMMARIZATION ============
@@ -481,21 +511,40 @@ function summarizeOldToolCalls(messages: ChatMessage[], recentTurnsRaw: number):
 // ============ DYNAMIC TOOL SCOPING ============
 // Only expose tools relevant to user's current intent
 // The LLM can't call a tool it can't see
-export function scopeToolsToIntent(allTools: any[], userMessage: string): any[] {
-  // Detect intent from user message
-  const wantsChess = /chess|play a game|play$|let'?s play/.test(userMessage)
+// Map app IDs to tool prefixes
+const APP_TOOL_PREFIX: Record<string, string> = {
+  'chess': 'chess_',
+  'math-practice': 'math_',
+  'flashcards': 'flashcards_',
+  'google-calendar': 'calendar_',
+}
+
+export function scopeToolsToIntent(allTools: any[], userMessage: string, activeAppId?: string | null): any[] {
+  // Detect intent from user message — order matters, more specific first
+  const wantsCalendar = /calend[ae]r|schedule|event|study block|study plan|delete.*event|add.*event|plan.*week|planner/.test(userMessage)
+  const wantsChess = /chess|play a game|let'?s play(?!\s*\w)/.test(userMessage)
   const wantsMath = /math|practice|problems|addition|algebra|subtract|multipl|divid/.test(userMessage)
-  const wantsFlashcards = /flash|study|quiz|review|learn about/.test(userMessage)
-  const wantsCalendar = /calendar|schedule|event|study block|study plan|delete.*event|add.*event|plan.*week/.test(userMessage)
+  const wantsFlashcards = /flash(?:card)?|quiz|review|learn about|study(?!.*(?:block|plan|schedule|calendar))/.test(userMessage)
 
-  // If no clear intent, send all tools (LLM decides)
   const hasIntent = wantsChess || wantsMath || wantsFlashcards || wantsCalendar
-  if (!hasIntent) return allTools
 
-  // Filter to matching app tools + always include end/finish tools for cleanup
+  // If no clear intent but an app is active, scope to that app's tools
+  // This handles follow-up messages like "what is the answer?" during math
+  if (!hasIntent) {
+    if (activeAppId && APP_TOOL_PREFIX[activeAppId]) {
+      const prefix = APP_TOOL_PREFIX[activeAppId]
+      return allTools.filter(tool => {
+        const name = tool.function?.name || ''
+        return name.startsWith(prefix)
+      })
+    }
+    // No active app and no intent — send all tools (LLM decides)
+    return allTools
+  }
+
+  // Only include tools for the matched app(s)
   return allTools.filter(tool => {
     const name = tool.function?.name || ''
-    if (name.includes('end_game') || name.includes('finish')) return true
     if (wantsChess && name.startsWith('chess_')) return true
     if (wantsMath && name.startsWith('math_')) return true
     if (wantsFlashcards && name.startsWith('flashcards_')) return true

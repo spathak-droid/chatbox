@@ -16,7 +16,7 @@ import {
   TextInput,
   Title,
 } from '@mantine/core'
-import { IconMessage, IconPlus, IconSend, IconTrash } from '@tabler/icons-react'
+import { IconMessage, IconPlus, IconSend, IconTrash, IconX } from '@tabler/icons-react'
 import { AppIframe } from '@/components/app-blocks/AppIframe'
 import { useAppStore } from '@/stores/appStore'
 import confetti from 'canvas-confetti'
@@ -299,7 +299,9 @@ export function ChatBridgeChat({ token, user, onLogout }: ChatBridgeChatProps) {
               }
               case 'tool_result': {
                 const toolName = event.toolName
-                const iframeUrl = getAppIframeUrl(toolName)
+                // Don't create iframe entries for end/finish/cleanup tools
+                const isEndTool = /end_game|finish|stop/.test(toolName)
+                const iframeUrl = isEndTool ? null : getAppIframeUrl(toolName)
                 const appId = getAppIdFromToolName(toolName)
 
                 if (iframeUrl && appId && event.result && event.result.status !== 'error') {
@@ -387,6 +389,9 @@ export function ChatBridgeChat({ token, user, onLogout }: ChatBridgeChatProps) {
     appSessionId: string
   } | null>(null)
 
+  // Track which sessions the user manually dismissed so the effect doesn't re-open them
+  const dismissedSessionsRef = useRef<Set<string>>(new Set())
+
   // Update active panel whenever messages change with new iframes
   useEffect(() => {
     // Scan from newest message backward to find the latest active iframe
@@ -394,13 +399,17 @@ export function ChatBridgeChat({ token, user, onLogout }: ChatBridgeChatProps) {
       const msg = messages[i]
       const iframes = msg.appIframes
 
-      // If this message has iframes, check if the latest one is still active
       if (iframes && iframes.length > 0) {
         const latest = iframes[iframes.length - 1]
         const state = latest.sessionState as Record<string, unknown>
 
-        // If the session is finished/over, skip it and keep looking
+        // If the session is finished/over, skip it
         if (state?.gameOver || state?.finished) {
+          continue
+        }
+
+        // Don't re-open a session the user manually closed
+        if (dismissedSessionsRef.current.has(latest.appSessionId)) {
           continue
         }
 
@@ -411,9 +420,8 @@ export function ChatBridgeChat({ token, user, onLogout }: ChatBridgeChatProps) {
         return
       }
 
-      // If latest message only has end/finish tool calls and no iframes, clear panel
+      // If latest message has end/finish tool calls and no iframes, clear panel
       if (msg.toolCalls?.some(tc => tc.name.includes('end_game') || tc.name.includes('finish'))) {
-        // But only if no newer message has an iframe (we're scanning newest-first, so if we're here, nothing newer had one)
         setActivePanel(null)
         return
       }
@@ -749,11 +757,28 @@ export function ChatBridgeChat({ token, user, onLogout }: ChatBridgeChatProps) {
             flexDirection: 'column',
           }}
         >
-          <Box p="sm" style={{ flex: '0 0 auto', borderBottom: '1px solid var(--mantine-color-dark-5)' }}>
+          <Group p="sm" justify="space-between" style={{ flex: '0 0 auto', borderBottom: '1px solid var(--mantine-color-dark-5)' }}>
             <Text size="sm" fw={600} c="white" tt="capitalize">
               {activePanel.appId}
             </Text>
-          </Box>
+            <ActionIcon size="sm" variant="subtle" color="gray" onClick={() => {
+              const closedApp = activePanel.appId
+              // Remember which session was dismissed so the effect doesn't re-open it
+              dismissedSessionsRef.current.add(activePanel.appSessionId)
+              setActivePanel(null)
+              // Add a local note — don't send to LLM (avoids re-triggering tools)
+              setMessages((prev) => [
+                ...prev,
+                {
+                  id: `close-${Date.now()}`,
+                  role: 'assistant',
+                  content: `📋 ${closedApp.replace('-', ' ').replace(/\b\w/g, (c: string) => c.toUpperCase())} app closed.`,
+                },
+              ])
+            }}>
+              <IconX size={14} />
+            </ActionIcon>
+          </Group>
           <Box style={{ flex: 1, padding: 8 }}>
             <AppIframe
               appId={activePanel.appId}

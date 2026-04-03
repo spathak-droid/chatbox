@@ -61,6 +61,15 @@ export async function createEvent(
   accessToken: string,
   event: CalendarEventInput,
 ): Promise<CalendarEvent> {
+  // Ensure timezone is set — Google rejects dateTime without timezone info
+  const DEFAULT_TZ = Intl.DateTimeFormat().resolvedOptions().timeZone || 'America/New_York'
+  if (event.start.dateTime && !event.start.timeZone && !/[+-]\d{2}:\d{2}$/.test(event.start.dateTime) && !event.start.dateTime.endsWith('Z')) {
+    event.start.timeZone = DEFAULT_TZ
+  }
+  if (event.end.dateTime && !event.end.timeZone && !/[+-]\d{2}:\d{2}$/.test(event.end.dateTime) && !event.end.dateTime.endsWith('Z')) {
+    event.end.timeZone = DEFAULT_TZ
+  }
+
   const res = await calendarFetch(accessToken, '/calendars/primary/events', {
     method: 'POST',
     body: JSON.stringify(event),

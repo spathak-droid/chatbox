@@ -40,12 +40,27 @@ chatRoutes.post('/send', async (req, res, next) => {
       [conversationId]
     )
 
-    const messages = historyResult.rows.map((row: any) => {
+    const messages: Array<any> = []
+    for (const row of historyResult.rows) {
       if (row.role === 'tool' && row.tool_call_id) {
-        return { role: 'tool' as const, content: row.content, tool_call_id: row.tool_call_id }
+        messages.push({ role: 'tool', content: row.content, tool_call_id: row.tool_call_id })
+      } else if (row.role === 'assistant' && row.tool_result) {
+        // Reconstruct assistant message with tool_calls
+        try {
+          const raw = typeof row.tool_result === 'string' ? JSON.parse(row.tool_result) : row.tool_result
+          const toolCalls = (Array.isArray(raw) ? raw : []).map((tc: any) => ({
+            id: tc.id,
+            type: 'function',
+            function: { name: tc.name, arguments: tc.args || '{}' },
+          }))
+          messages.push({ role: 'assistant', content: row.content || '', tool_calls: toolCalls })
+        } catch {
+          messages.push({ role: 'assistant', content: row.content })
+        }
+      } else {
+        messages.push({ role: row.role, content: row.content })
       }
-      return { role: row.role as 'system' | 'user' | 'assistant', content: row.content }
-    })
+    }
 
     // Set SSE headers and send conversationId before streaming
     res.setHeader('Content-Type', 'text/event-stream')
@@ -168,6 +183,12 @@ chatRoutes.post('/conversations/:id/confirm-actions', requireAuth, async (req, r
     } catch {
       // Fallback to default summary on LLM error
     }
+
+    // Persist the confirmation result as an assistant message
+    await query(
+      'INSERT INTO messages (conversation_id, role, content) VALUES ($1, $2, $3)',
+      [req.params.id, 'assistant', summary]
+    )
 
     res.json({ ok: true, results, summary })
   } catch (err) {

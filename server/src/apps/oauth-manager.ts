@@ -22,15 +22,18 @@ export async function saveOAuthConnection(
   refreshToken?: string,
   expiresAt?: Date,
   scopes?: string,
+  email?: string,
 ) {
   await query(
-    `INSERT INTO oauth_connections (user_id, provider, access_token, refresh_token, expires_at, scopes)
-     VALUES ($1, $2, $3, $4, $5, $6)
+    `INSERT INTO oauth_connections (user_id, provider, access_token, refresh_token, expires_at, scopes, email)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)
      ON CONFLICT (user_id, provider) DO UPDATE SET
        access_token = EXCLUDED.access_token,
        refresh_token = COALESCE(EXCLUDED.refresh_token, oauth_connections.refresh_token),
-       expires_at = EXCLUDED.expires_at, updated_at = NOW()`,
-    [userId, provider, accessToken, refreshToken || null, expiresAt || null, scopes || null]
+       expires_at = EXCLUDED.expires_at,
+       email = COALESCE(EXCLUDED.email, oauth_connections.email),
+       updated_at = NOW()`,
+    [userId, provider, accessToken, refreshToken || null, expiresAt || null, scopes || null, email || null]
   )
 }
 

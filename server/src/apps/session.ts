@@ -26,6 +26,13 @@ export async function getOrCreateSession(
 
   if (existing.rows.length > 0) return rowToSession(existing.rows[0])
 
+  // Auto-close any active sessions for OTHER apps in this conversation
+  await query(
+    `UPDATE app_sessions SET status = 'completed', summary = COALESCE(summary, 'Ended (switched to another app)'), updated_at = NOW()
+     WHERE conversation_id = $1 AND user_id = $2 AND status = 'active' AND app_id != $3`,
+    [conversationId, userId, appId]
+  )
+
   const result = await query(
     `INSERT INTO app_sessions (app_id, conversation_id, user_id, state, status)
      VALUES ($1, $2, $3, '{}', 'active') RETURNING *`,

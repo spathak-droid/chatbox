@@ -159,7 +159,7 @@ export function AppIframe({
       <iframe
         ref={iframeRef}
         src={iframeUrl}
-        sandbox="allow-scripts allow-popups"
+        sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox allow-same-origin"
         style={{
           width: '100%',
           height: fillHeight ? '100%' : iframeHeight,

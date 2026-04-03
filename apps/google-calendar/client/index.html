@@ -137,6 +137,23 @@
       background: #dee2e6;
     }
 
+    .btn-disconnect {
+      background: #f8d7da;
+      color: #721c24;
+      padding: 8px 16px;
+      font-size: 13px;
+    }
+
+    .btn-disconnect:hover {
+      background: #f5c6cb;
+    }
+
+    .header-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
     .events-section {
       margin-bottom: 20px;
     }
@@ -273,7 +290,10 @@
     <div id="mainView" class="hidden">
       <div class="header">
         <h1><span class="calendar-icon">&#128197;</span> Study Planner</h1>
-        <span class="status-badge connected">Connected</span>
+        <div class="header-actions">
+          <span class="status-badge connected" id="connectedEmail"></span>
+          <button class="btn btn-disconnect" onclick="requestDisconnect()">Disconnect</button>
+        </div>
       </div>
 
       <div id="errorMsg" class="error-msg hidden"></div>
@@ -332,7 +352,6 @@
         case 'host.init':
           sessionId = msg.appSessionId
           if (msg.platformToken) platformToken = msg.platformToken
-          if (msg.platformUrl) PLATFORM_URL = msg.platformUrl
           if (msg.state) {
             state = msg.state
             render()
@@ -398,16 +417,17 @@
             if (data.connected && data.accessToken) {
               state.connected = true
               state.accessToken = data.accessToken
+              if (data.email) state.email = data.email
             }
           }
         } catch {}
       }
 
-      // Only show connected view when we truly have access
-      const isConnected = state.connected && state.accessToken
-      if (isConnected) {
+      if (state.connected) {
         connectView.classList.add('hidden')
         mainView.classList.remove('hidden')
+        const emailEl = document.getElementById('connectedEmail')
+        emailEl.textContent = state.email || 'Connected'
         renderEvents()
         renderStudyBlocks()
       } else {
@@ -460,8 +480,8 @@
       sendResize()
     }
 
-    // Platform server URL for OAuth - passed from host or derived from env
-    let PLATFORM_URL = 'http://localhost:3000'
+    // Platform server URL for OAuth
+    const PLATFORM_URL = 'http://localhost:3000'
     let platformToken = null
 
     async function requestConnect() {
@@ -510,6 +530,25 @@
         }
       } catch (err) {
         showError('Failed to connect. Try again.')
+      }
+    }
+
+    async function requestDisconnect() {
+      if (!platformToken) return
+      try {
+        const res = await fetch(`${PLATFORM_URL}/api/apps/oauth/google/disconnect`, {
+          method: 'DELETE',
+          headers: { Authorization: `Bearer ${platformToken}` },
+        })
+        if (res.ok) {
+          state = {}
+          syncToParent()
+          render()
+        } else {
+          showError('Failed to disconnect')
+        }
+      } catch {
+        showError('Failed to disconnect')
       }
     }
 
@@ -572,6 +611,13 @@
     // Init: send ready
     sendToHost({ type: 'app.ready', appId: 'google-calendar' })
     sendResize()
+
+    // Fallback: if no host.init received within 2s, show UI anyway (standalone mode)
+    setTimeout(() => {
+      if (waitingEl && !waitingEl.classList.contains('hidden')) {
+        render()
+      }
+    }, 2000)
   </script>
 </body>
 </html>
