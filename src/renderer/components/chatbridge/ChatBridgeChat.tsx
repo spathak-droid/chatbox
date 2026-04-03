@@ -647,7 +647,7 @@ export function ChatBridgeChat({ token, user, onLogout }: ChatBridgeChatProps) {
         </ScrollArea>
 
         {/* Suggestion buttons */}
-        <Group gap="xs" px="md" pb={4} pt="xs" maw={600} mx="auto" style={{ flex: '0 0 auto' }}>
+        <Group gap="xs" px="md" pb={4} pt="xs" className="max-w-4xl mx-auto" style={{ flex: '0 0 auto' }}>
           {[
             { label: 'Play Chess', icon: '\u265E', msg: "Let's play chess" },
             { label: 'Practice Math', icon: '\u2795', msg: "Let's practice math" },
@@ -705,43 +705,64 @@ export function ChatBridgeChat({ token, user, onLogout }: ChatBridgeChatProps) {
           </Paper>
         )}
 
-        {/* Input */}
-        <Box
-          p="md"
-          pt={4}
-          style={{
-            borderTop: '1px solid var(--mantine-color-dark-5)',
-            flex: '0 0 auto',
-          }}
-        >
-          <Flex gap="sm" maw={600} mx="auto">
-            <TextInput
-              ref={inputRef}
-              placeholder="Type a message..."
-              value={input}
-              onChange={(e) => setInput(e.currentTarget.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey) {
-                  e.preventDefault()
-                  sendMessage()
-                }
+        {/* Input — matches Chatbox InputBox styling */}
+        <Box pt={0} pb="sm" px="sm" style={{ flex: '0 0 auto' }}>
+          <Stack className="max-w-4xl mx-auto" gap="xs">
+            <Stack
+              className="rounded-md justify-between px-3 py-2"
+              style={{
+                background: 'var(--chatbox-background-secondary, var(--mantine-color-dark-7))',
+                border: '1px solid var(--chatbox-border-primary, var(--mantine-color-dark-4))',
+                minHeight: 92,
               }}
-              style={{ flex: 1 }}
-              disabled={loading}
-              size="md"
-            />
-            <ActionIcon
-              size="lg"
-              variant="filled"
-              color="blue"
-              onClick={() => sendMessage()}
-              disabled={loading || !input.trim()}
-              h={42}
-              w={42}
+              gap="xs"
             >
-              <IconSend size={18} />
-            </ActionIcon>
-          </Flex>
+              <Flex align="flex-end" gap={4}>
+                <textarea
+                  ref={inputRef as any}
+                  placeholder="Type your question here..."
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault()
+                      sendMessage()
+                    }
+                  }}
+                  disabled={loading}
+                  rows={2}
+                  style={{
+                    flex: 1,
+                    outline: 'none',
+                    border: 'none',
+                    padding: '4px 8px',
+                    resize: 'none',
+                    background: 'transparent',
+                    color: 'var(--chatbox-tint-primary, var(--mantine-color-text))',
+                    lineHeight: '1.5rem',
+                    fontSize: 14,
+                    fontFamily: 'inherit',
+                  }}
+                />
+                <ActionIcon
+                  size={32}
+                  variant="filled"
+                  color={loading ? 'dark' : 'chatbox-brand'}
+                  radius="xl"
+                  onClick={() => loading ? null : sendMessage()}
+                  disabled={!loading && !input.trim()}
+                  className="shrink-0 mb-1"
+                  style={!loading && !input.trim() ? { backgroundColor: 'rgba(222, 226, 230, 1)' } : undefined}
+                >
+                  {loading ? (
+                    <Loader size={16} color="white" />
+                  ) : (
+                    <IconSend size={16} />
+                  )}
+                </ActionIcon>
+              </Flex>
+            </Stack>
+          </Stack>
         </Box>
       </Flex>
 
@@ -810,45 +831,42 @@ function MessageBubble({
 
   return (
     <Stack gap="xs">
-      <Flex justify={isUser ? 'flex-end' : 'flex-start'} gap="sm" align="flex-start">
-        {!isUser && (
-          <Avatar size="sm" radius="xl" color="violet" mt={4}>
-            AI
-          </Avatar>
-        )}
-        <Paper
-          shadow="xs"
-          p="sm"
-          radius="md"
-          maw="75%"
-          style={{
-            background: isUser ? 'var(--mantine-color-blue-7)' : 'var(--mantine-color-dark-6)',
-          }}
-        >
-          <Text
-            size="sm"
-            c="white"
-            style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}
-          >
-            {message.content || (message.toolCalls?.length ? '' : '...')}
-          </Text>
-
-          {/* Tool call indicators */}
-          {message.toolCalls && message.toolCalls.length > 0 && (
-            <Stack gap={4} mt="xs">
-              {message.toolCalls.map((tc) => (
-                <Badge key={tc.id} size="sm" variant="outline" color="cyan">
-                  Calling {tc.name}...
-                </Badge>
-              ))}
-            </Stack>
+      <Box className="max-w-4xl mx-auto w-full" px="md">
+        <Flex gap="sm" align="flex-start" direction={isUser ? 'row-reverse' : 'row'}>
+          {!isUser && (
+            <Avatar size="sm" radius="xl" color="violet" mt={4} className="shrink-0">
+              AI
+            </Avatar>
           )}
-        </Paper>
-        {isUser && (
-          <Avatar size="sm" radius="xl" color="blue" mt={4}>
-            U
-          </Avatar>
-        )}
+          <Box
+            className={`rounded-lg px-4 py-2 ${isUser ? 'bg-chatbox-background-brand-secondary' : 'bg-chatbox-background-secondary'}`}
+            maw="80%"
+            style={{ wordBreak: 'break-word' }}
+          >
+            <Text
+              size="sm"
+              c={isUser ? 'chatbox-brand' : 'chatbox-primary'}
+              style={{ whiteSpace: 'pre-wrap' }}
+            >
+              {message.content || (message.toolCalls?.length ? '' : '...')}
+            </Text>
+
+            {/* Tool call indicators */}
+            {message.toolCalls && message.toolCalls.length > 0 && (
+              <Stack gap={4} mt="xs">
+                {message.toolCalls.map((tc) => (
+                  <Badge key={tc.id} size="xs" variant="light" color="gray" radius="sm">
+                    {tc.name}
+                  </Badge>
+                ))}
+              </Stack>
+            )}
+          </Box>
+          {isUser && (
+            <Avatar size="sm" radius="xl" color="blue" mt={4} className="shrink-0">
+              U
+            </Avatar>
+          )}
       </Flex>
 
       {/* App iframes now render in the right panel */}

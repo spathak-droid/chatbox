@@ -17,13 +17,12 @@ import {
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import NiceModal from '@ebay/nice-modal-react'
-import { ActionIcon, Flex, NavLink, Text, Tooltip } from '@mantine/core'
+import { ActionIcon, Flex, Text, Tooltip } from '@mantine/core'
 import { IconArchive, IconSearch } from '@tabler/icons-react'
-import { useNavigate, useRouterState } from '@tanstack/react-router'
+import { useRouterState } from '@tanstack/react-router'
 import type { MutableRefObject } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Virtuoso } from 'react-virtuoso'
-import { useIsSmallScreen } from '@/hooks/useScreenChange'
 import { useSessionList } from '@/stores/chatStore'
 import { reorderSessions } from '@/stores/sessionActions'
 import { useUIStore } from '@/stores/uiStore'
@@ -37,8 +36,6 @@ export default function SessionList(props: Props) {
   const { t } = useTranslation()
   const { sessionMetaList: sortedSessions, refetch } = useSessionList()
   const setOpenSearchDialog = useUIStore((s) => s.setOpenSearchDialog)
-  const navigate = useNavigate()
-  const isSmallScreen = useIsSmallScreen()
   const sensors = useSensors(
     useSensor(TouchSensor, {
       activationConstraint: {
@@ -102,19 +99,6 @@ export default function SessionList(props: Props) {
           </ActionIcon>
         </Tooltip>
       </Flex>
-
-      <NavLink
-        c="chatbox-secondary"
-        className="rounded"
-        mx="xs"
-        mb={4}
-        label="TutorMeAI"
-        leftSection={<span style={{ fontSize: 18, width: 20, textAlign: 'center' }}>🎓</span>}
-        active={routerState.location.pathname === '/chatbridge'}
-        onClick={() => navigate({ to: '/chatbridge' })}
-        variant="light"
-        p="xs"
-      />
 
       <DndContext
         modifiers={[restrictToVerticalAxis]}
