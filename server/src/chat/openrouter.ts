@@ -42,7 +42,7 @@ export async function streamChatWithTools(
       .map((s) => {
         if (s.status === 'active') {
           if (isSwitching && s.appId === activeSession.appId) {
-            return `[Switching from ${activeSession.appId} to ${intentApp}. End the old app and start the new one.]`
+            return `[Switching from ${activeSession.appId} to ${intentApp}. You MUST call the end tool for ${activeSession.appId} first, then the start tool for ${intentApp}. Briefly discuss what happened in ${activeSession.appId} before moving on.]`
           }
           const state = s.state as Record<string, unknown> | null
           if (state?.gameOver) {
@@ -99,14 +99,22 @@ Step 1: What app does the user want?
 
 Step 2: Is that EXACT app already active? (check "[Active app: X]" in app context below)
 - YES, the EXACT SAME app is listed as "[Active app: X]" → Do NOT call start tools. Just chat about it.
-- NO, a DIFFERENT app is active → Call the start tool for the NEW app. The platform auto-closes the old app.
+- NO, a DIFFERENT app is active → You MUST call the end tool FIRST (chess_end_game, math_finish_session, flashcards_finish_deck, or calendar_end_session), THEN call the start tool for the new app. Both in the same response.
 - NO app is active (all completed or none) → Call the start tool for the requested app.
 - A "Completed app" is NOT active. If user asks for an app that was previously completed, start it fresh.
+
+Step 2b: After ending an app, ALWAYS briefly discuss what happened in it (1-2 sentences). Examples:
+- Chess: "Nice game! You had a strong position." or "That was a tough one — want to try again later?"
+- Math: "You got 7 out of 10 right — great work on those multiplication problems!"
+- Flashcards: "You reviewed 12 cards and got most of them right!"
+- Calendar: "Your study schedule is all set!"
+Then transition to the new app.
 
 Step 3: Pick tool parameters using defaults. NEVER ask the user.
 - math_start_session: topic="addition", difficulty="easy"
 - flashcards_start_deck: generate 5-8 cards on any topic from context
 - chess_start_game: playerColor="white"
+- calendar_end_session: no parameters needed
 
 ## ABSOLUTE RULES — VIOLATIONS ARE BUGS:
 - ONLY call chess_ tools when user wants CHESS. ONLY call math_ tools when user wants MATH. ONLY call flashcards_ tools when user wants FLASHCARDS.
