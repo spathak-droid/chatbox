@@ -8,6 +8,7 @@ import { chatRoutes } from './chat/routes.js'
 import { errorHandler } from './middleware/error-handler.js'
 import { initDb } from './db/client.js'
 import { loadAppsIntoCache, registerApp } from './apps/registry.js'
+import { initQueue } from './queue/llm-queue.js'
 
 const app = express()
 
@@ -39,6 +40,7 @@ app.use(errorHandler)
 
 async function start() {
   await initDb()
+  await initQueue()
 
   const appEndpoints = [
     config.appUrls.mathPractice,

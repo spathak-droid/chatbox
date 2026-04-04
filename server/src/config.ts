@@ -19,4 +19,8 @@ export const config = {
     flashcards: process.env.FLASHCARDS_APP_URL || 'http://localhost:3004',
     whiteboard: process.env.WHITEBOARD_APP_URL || 'http://localhost:3005',
   },
+  redisUrl: process.env.REDIS_URL || '',
+  rateLimitPerMin: parseInt(process.env.RATE_LIMIT_PER_MIN || '15', 10),
+  queueConcurrency: parseInt(process.env.QUEUE_CONCURRENCY || '10', 10),
+  queueJobTimeout: parseInt(process.env.QUEUE_JOB_TIMEOUT || '120000', 10),
 }

@@ -2,17 +2,18 @@ import { Router } from 'express'
 import { z } from 'zod'
 import { requireAuth } from '../auth/middleware.js'
 import { query } from '../db/client.js'
-import { streamChatWithTools } from './openrouter.js'
+import { enqueueChat } from '../queue/llm-queue.js'
 import { getPendingActions, executePendingActions, clearPendingActions } from '../apps/tool-router.js'
 import { getSessionsForConversation } from '../apps/session.js'
 import { config } from '../config.js'
 import { sanitizeStateForLLM } from '../security/sanitize.js'
+import { rateLimiter } from '../middleware/rate-limiter.js'
 
 export const chatRoutes = Router()
 
 chatRoutes.use(requireAuth)
 
-chatRoutes.post('/send', async (req, res, next) => {
+chatRoutes.post('/send', rateLimiter, async (req, res, next) => {
   try {
     const body = z.object({
       conversationId: z.string().uuid().optional(),
@@ -72,7 +73,14 @@ chatRoutes.post('/send', async (req, res, next) => {
     res.write(`data: ${JSON.stringify({ type: 'conversation', conversationId })}\n\n`)
 
     const authToken = (req.headers.authorization || '').replace('Bearer ', '')
-    await streamChatWithTools(messages, conversationId, userId, res, authToken, body.timezone)
+    const jobId = `chat-${conversationId}-${Date.now()}`
+    await enqueueChat(jobId, res, {
+      messages,
+      conversationId,
+      userId,
+      authToken,
+      timezone: body.timezone,
+    })
   } catch (err) {
     if (!res.headersSent) next(err)
   }
