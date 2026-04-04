@@ -7,6 +7,49 @@ import { getPendingActions, executePendingActions, clearPendingActions } from '.
 import { getSessionsForConversation } from '../apps/session.js'
 import { config } from '../config.js'
 
+function sanitizeStateForLLM(appId: string, state: Record<string, unknown>): string {
+  const SENSITIVE_KEYS = ['accessToken', 'access_token', 'refreshToken', 'refresh_token', 'platformToken', 'userId', 'user_id', '_refreshTrigger']
+  const clean: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(state)) {
+    if (!SENSITIVE_KEYS.includes(key)) {
+      clean[key] = value
+    }
+  }
+  switch (appId) {
+    case 'chess': {
+      const parts: string[] = []
+      if (clean.fen) parts.push(`Position: ${clean.fen}`)
+      if (clean.moves) parts.push(`Moves played: ${Array.isArray(clean.moves) ? clean.moves.length : clean.moves}`)
+      if (clean.gameOver) parts.push(`Game over: ${clean.result || 'unknown'}`)
+      if (clean.playerColor) parts.push(`Playing as: ${clean.playerColor}`)
+      return parts.length > 0 ? parts.join('. ') : 'Chess game in progress.'
+    }
+    case 'math-practice': {
+      const parts: string[] = []
+      if (clean.correct !== undefined) parts.push(`Correct: ${clean.correct}`)
+      if (clean.incorrect !== undefined) parts.push(`Incorrect: ${clean.incorrect}`)
+      if (clean.topic) parts.push(`Topic: ${clean.topic}`)
+      if (clean.currentIndex !== undefined) parts.push(`Problems attempted: ${clean.currentIndex}`)
+      return parts.length > 0 ? parts.join('. ') : 'Math session in progress.'
+    }
+    case 'flashcards': {
+      const parts: string[] = []
+      if (clean.cardsTotal) parts.push(`Total cards: ${clean.cardsTotal}`)
+      if (clean.cardsReviewed !== undefined) parts.push(`Reviewed: ${clean.cardsReviewed}`)
+      if (clean.topic) parts.push(`Topic: ${clean.topic}`)
+      return parts.length > 0 ? parts.join('. ') : 'Flashcard session in progress.'
+    }
+    case 'google-calendar': {
+      const parts: string[] = []
+      if (clean.events && Array.isArray(clean.events)) parts.push(`${clean.events.length} events visible`)
+      if (clean.studyBlocks && Array.isArray(clean.studyBlocks)) parts.push(`${clean.studyBlocks.length} study blocks`)
+      return parts.length > 0 ? parts.join('. ') : 'Calendar session.'
+    }
+    default:
+      return JSON.stringify(clean).slice(0, 500)
+  }
+}
+
 export const chatRoutes = Router()
 
 chatRoutes.use(requireAuth)
@@ -201,6 +244,70 @@ chatRoutes.post('/conversations/:id/confirm-actions', requireAuth, async (req, r
 chatRoutes.post('/conversations/:id/cancel-actions', requireAuth, (req, res) => {
   clearPendingActions(req.params.id)
   res.json({ ok: true })
+})
+
+// Close an app and request LLM farewell summary
+chatRoutes.post('/conversations/:id/close-app', requireAuth, async (req, res, next) => {
+  try {
+    const { appId, appState } = z.object({
+      appId: z.string(),
+      appState: z.record(z.unknown()).optional(),
+    }).parse(req.body)
+
+    const conversationId = req.params.id
+    const userId = req.user!.id
+
+    // Mark the session as completed
+    const sessions = await getSessionsForConversation(conversationId)
+    const session = sessions.find((s: any) => s.appId === appId && s.status === 'active')
+    if (session) {
+      await query(
+        `UPDATE app_sessions SET status = 'completed', summary = 'Closed by user', updated_at = NOW() WHERE id = $1`,
+        [session.id]
+      )
+    }
+
+    // Build sanitized state summary
+    const sanitizedState = sanitizeStateForLLM(appId, appState || {})
+
+    // Generate farewell via LLM
+    let farewell = ''
+    try {
+      const farewellResponse = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${config.openrouterApiKey}`,
+          'Content-Type': 'application/json',
+          'HTTP-Referer': 'https://chatbridge.app',
+        },
+        body: JSON.stringify({
+          model: config.openrouterModel,
+          messages: [
+            { role: 'system', content: 'You are TutorMeAI, a friendly tutor for students ages 8-14. The user just closed an app. Give a brief, cheerful 1-2 sentence farewell summarizing what happened. No emojis unless it fits naturally.' },
+            { role: 'user', content: `The user closed ${appId}. Session state: ${sanitizedState}` },
+          ],
+          stream: false,
+        }),
+      })
+      if (farewellResponse.ok) {
+        const data = await farewellResponse.json()
+        farewell = data.choices?.[0]?.message?.content || ''
+      }
+    } catch {
+      // Fallback — no farewell if LLM fails
+    }
+
+    if (farewell) {
+      await query(
+        'INSERT INTO messages (conversation_id, role, content) VALUES ($1, $2, $3)',
+        [conversationId, 'assistant', farewell]
+      )
+    }
+
+    res.json({ ok: true, farewell })
+  } catch (err) {
+    next(err)
+  }
 })
 
 chatRoutes.get('/conversations/:id/messages', async (req, res, next) => {
