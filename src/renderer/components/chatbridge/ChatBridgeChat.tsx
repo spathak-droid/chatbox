@@ -20,6 +20,7 @@ import { IconMenu2, IconMessage, IconPlus, IconSend, IconTrash, IconX } from '@t
 import { AppIframe } from '@/components/app-blocks/AppIframe'
 import { useAppStore } from '@/stores/appStore'
 import confetti from 'canvas-confetti'
+import { ThinkingCharacter } from './ThinkingCharacter'
 
 const API_BASE = (import.meta.env.VITE_API_BASE as string) || 'http://localhost:3000/api'
 
@@ -113,6 +114,7 @@ export function ChatBridgeChat({ token, user, onLogout }: ChatBridgeChatProps) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const viewportRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
+  const chatContainerRef = useRef<HTMLDivElement>(null)
 
   const { setActiveApp } = useAppStore()
 
@@ -816,32 +818,35 @@ export function ChatBridgeChat({ token, user, onLogout }: ChatBridgeChatProps) {
         )}
         {/* Messages */}
         <ScrollArea style={{ flex: 1 }} viewportRef={viewportRef} p="md">
-          <Stack gap="md" maw={600} mx="auto" pb="xl">
-            {messages.length === 0 && (
-              <Stack align="center" justify="center" py="xl" gap="md">
-                <Title order={3} c="dimmed">
-                  Start a conversation
-                </Title>
-                <Text size="sm" c="dimmed" ta="center" maw={400}>
-                  Ask me anything! Try &quot;let&apos;s play chess&quot;, &quot;help me study with flashcards&quot;, or &quot;open the whiteboard&quot;
-                  to launch interactive apps.
-                </Text>
-              </Stack>
-            )}
+          <div ref={chatContainerRef} style={{ position: 'relative', minHeight: '100%' }}>
+            <Stack gap="md" maw={600} mx="auto" pb="xl">
+              {messages.length === 0 && (
+                <Stack align="center" justify="center" py="xl" gap="md">
+                  <Title order={3} c="dimmed">
+                    Start a conversation
+                  </Title>
+                  <Text size="sm" c="dimmed" ta="center" maw={400}>
+                    Ask me anything! Try &quot;let&apos;s play chess&quot;, &quot;help me study with flashcards&quot;, or &quot;open the whiteboard&quot;
+                    to launch interactive apps.
+                  </Text>
+                </Stack>
+              )}
 
-            {messages.map((msg) => (
-              <MessageBubble key={msg.id} message={msg} onToolRequest={handleToolRequest} />
-            ))}
+              {messages.map((msg) => (
+                <MessageBubble key={msg.id} message={msg} onToolRequest={handleToolRequest} />
+              ))}
 
-            {loading && (
-              <Flex gap="xs" align="center" px="md">
-                <Loader size="xs" />
-                <Text size="sm" c="dimmed">
-                  Thinking...
-                </Text>
-              </Flex>
-            )}
-          </Stack>
+              {loading && (
+                <Flex gap="xs" align="center" px="md">
+                  <Loader size="xs" />
+                  <Text size="sm" c="dimmed">
+                    Thinking...
+                  </Text>
+                </Flex>
+              )}
+            </Stack>
+            <ThinkingCharacter mode="idle" containerRef={chatContainerRef} />
+          </div>
         </ScrollArea>
 
         {/* Suggestion buttons */}
