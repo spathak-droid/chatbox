@@ -28,6 +28,7 @@ const APP_PREFIX_MAP: Record<string, string> = {
   calendar_: (import.meta.env.VITE_CALENDAR_APP_URL as string) || 'http://localhost:3002/app',
   chess_: (import.meta.env.VITE_CHESS_APP_URL as string) || 'http://localhost:3003/app',
   flashcards_: (import.meta.env.VITE_FLASHCARDS_APP_URL as string) || 'http://localhost:3004/app',
+  mario_: (import.meta.env.VITE_MARIO_APP_URL as string) || 'http://localhost:3005/app',
 }
 
 function getAppIframeUrl(toolName: string): string | null {
@@ -42,6 +43,7 @@ const APP_ID_MAP: Record<string, string> = {
   calendar_: 'google-calendar',
   chess_: 'chess',
   flashcards_: 'flashcards',
+  mario_: 'mario',
 }
 
 function getAppIdFromToolName(toolName: string): string | null {
@@ -321,7 +323,24 @@ export function ChatBridgeChat({ token, user, onLogout }: ChatBridgeChatProps) {
               case 'tool_result': {
                 const toolName = event.toolName
                 // Don't create iframe entries for end/finish/cleanup tools
-                const isEndTool = /end_game|finish|stop/.test(toolName)
+                const isEndTool = /end_game|finish|stop|end_session/.test(toolName)
+
+                // When an end tool fires, close the sidebar and add a close note
+                if (isEndTool) {
+                  const closedAppId = getAppIdFromToolName(toolName)
+                  const appLabel = closedAppId
+                    ? closedAppId.replace(/-/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase())
+                    : 'App'
+                  setMessages((prev) => [
+                    ...prev,
+                    {
+                      id: `close-${Date.now()}`,
+                      role: 'assistant',
+                      content: `\u{1F4CB} ${appLabel} closed.`,
+                    },
+                  ])
+                }
+
                 const iframeUrl = isEndTool ? null : getAppIframeUrl(toolName)
                 const appId = getAppIdFromToolName(toolName)
 
@@ -366,8 +385,16 @@ export function ChatBridgeChat({ token, user, onLogout }: ChatBridgeChatProps) {
               case 'pending_confirmation': {
                 const actions = event.result?.data?.actions || []
                 setPendingActions(actions)
-                // Remove the empty assistant message (no text was streamed)
-                setMessages(prev => prev.filter(m => m.id !== assistantMsgId))
+                // Only remove the assistant message if it's truly empty.
+                // If it has iframes or tool calls from non-destructive tools in the
+                // same batch, keep it — removing it destroys the sidebar panel state.
+                setMessages(prev => {
+                  const msg = prev.find(m => m.id === assistantMsgId)
+                  if (msg && !msg.content && (!msg.toolCalls || msg.toolCalls.length === 0) && (!msg.appIframes || msg.appIframes.length === 0)) {
+                    return prev.filter(m => m.id !== assistantMsgId)
+                  }
+                  return prev
+                })
                 scrollToBottom()
                 break
               }
@@ -402,8 +429,16 @@ export function ChatBridgeChat({ token, user, onLogout }: ChatBridgeChatProps) {
 
   // Track the active app panel (latest iframe from any message)
   const [pendingActions, setPendingActions] = useState<Array<{ id: string; description: string }>>([])
+  const [isConfirming, setIsConfirming] = useState(false)
 
   const [activePanel, setActivePanel] = useState<{
+    appId: string
+    iframeUrl: string
+    sessionState: Record<string, unknown>
+    appSessionId: string
+  } | null>(null)
+
+  const [secondaryPanel, setSecondaryPanel] = useState<{
     appId: string
     iframeUrl: string
     sessionState: Record<string, unknown>
@@ -435,6 +470,10 @@ export function ChatBridgeChat({ token, user, onLogout }: ChatBridgeChatProps) {
         }
 
         setActivePanel((prev) => {
+          // If a different app is already active, push it to secondary (split mode)
+          if (prev && prev.appId !== latest.appId && !dismissedSessionsRef.current.has(prev.appSessionId)) {
+            setSecondaryPanel(prev)
+          }
           if (prev?.appSessionId === latest.appSessionId && prev?.sessionState === latest.sessionState) return prev
           return latest
         })
@@ -442,14 +481,16 @@ export function ChatBridgeChat({ token, user, onLogout }: ChatBridgeChatProps) {
       }
 
       // If latest message has end/finish tool calls and no iframes, clear panel
-      if (msg.toolCalls?.some(tc => tc.name.includes('end_game') || tc.name.includes('finish'))) {
+      if (msg.toolCalls?.some(tc => tc.name.includes('end_game') || tc.name.includes('finish') || tc.name.includes('end_session'))) {
         setActivePanel(null)
+        setSecondaryPanel(null)
         return
       }
     }
 
     // No active iframes found at all
     setActivePanel(null)
+    setSecondaryPanel(null)
   }, [messages])
 
   const handleToolRequest = useCallback(
@@ -489,20 +530,25 @@ export function ChatBridgeChat({ token, user, onLogout }: ChatBridgeChatProps) {
     }, 600)
   }, [])
 
-  const handleGameOver = useCallback(
-    (result: { won: boolean; result?: string }) => {
-      if (result.won) {
-        fireConfetti()
-      }
-      // Close the panel after a delay so the user sees the final state
-      setTimeout(() => setActivePanel(null), 3000)
-    },
-    [fireConfetti]
-  )
-
   // Sync board state to server so the LLM can see it
   const confirmActions = useCallback(async () => {
     if (!conversationId) return
+    setIsConfirming(true)
+
+    // Build a progress message showing what's being done
+    const actionLines = pendingActions.map((a) => {
+      const icon = a.description.includes('Delete') ? '\u274C' : a.description.includes('Update') ? '\u270F\uFE0F' : '\u2795'
+      return `${icon} ${a.description}`
+    }).join('\n')
+    const progressMsgId = `progress-${Date.now()}`
+    const progressMsg: ChatMessage = {
+      id: progressMsgId,
+      role: 'assistant',
+      content: `Working on it...\n${actionLines}`,
+    }
+    setMessages((prev) => [...prev, progressMsg])
+    setPendingActions([])
+
     try {
       const res = await fetch(`${API_BASE}/chat/conversations/${conversationId}/confirm-actions`, {
         method: 'POST',
@@ -510,17 +556,39 @@ export function ChatBridgeChat({ token, user, onLogout }: ChatBridgeChatProps) {
       })
       if (res.ok) {
         const data = await res.json()
-        // Add a confirmation message
-        const confirmMsg: ChatMessage = {
-          id: `system-${Date.now()}`,
-          role: 'assistant',
-          content: data.summary || `Done! ${data.results?.length || 0} action(s) completed.`,
-        }
-        setMessages((prev) => [...prev, confirmMsg])
+        // Replace progress message with the final summary
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === progressMsgId
+              ? { ...m, content: data.summary || `Done! ${data.results?.length || 0} action(s) completed.` }
+              : m
+          )
+        )
+      } else {
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === progressMsgId
+              ? { ...m, content: 'Something went wrong while applying changes. Please try again.' }
+              : m
+          )
+        )
       }
-    } catch {}
-    setPendingActions([])
-  }, [conversationId, token])
+    } catch {
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === progressMsgId
+            ? { ...m, content: 'Something went wrong while applying changes. Please try again.' }
+            : m
+        )
+      )
+    }
+
+    // Trigger sidebar iframe refresh so user doesn't have to click Refresh manually
+    setActivePanel((prev) =>
+      prev ? { ...prev, sessionState: { ...prev.sessionState, _refreshTrigger: Date.now() } } : prev
+    )
+    setIsConfirming(false)
+  }, [conversationId, token, pendingActions])
 
   const cancelActions = useCallback(async () => {
     if (!conversationId) return
@@ -537,8 +605,12 @@ export function ChatBridgeChat({ token, user, onLogout }: ChatBridgeChatProps) {
     setMessages((prev) => [...prev, cancelMsg])
   }, [conversationId, token])
 
+  // Track latest app state for close-button summary
+  const latestAppStateRef = useRef<Record<string, unknown>>({})
+
   const handleStateChange = useCallback(
     (state: Record<string, unknown>) => {
+      latestAppStateRef.current = { ...latestAppStateRef.current, ...state }
       if (!conversationId || !activePanel) return
       fetch(`${API_BASE}/chat/conversations/${conversationId}/sync-app-state`, {
         method: 'POST',
@@ -553,6 +625,66 @@ export function ChatBridgeChat({ token, user, onLogout }: ChatBridgeChatProps) {
       }).catch(() => {})
     },
     [conversationId, activePanel, token]
+  )
+
+  const handleGameEvent = useCallback(
+    (event: { type: string; detail: Record<string, unknown> }) => {
+      if (event.type === 'level_complete' || event.type === 'game_won') {
+        fireConfetti()
+      }
+    },
+    [fireConfetti]
+  )
+
+  const closeApp = useCallback(
+    (panel: { appId: string; appSessionId: string; sessionState: Record<string, unknown> }) => {
+      const appLabel = panel.appId.replace(/-/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase())
+
+      // 1. Close panel immediately and clear from split mode
+      dismissedSessionsRef.current.add(panel.appSessionId)
+      if (activePanel?.appSessionId === panel.appSessionId) {
+        setActivePanel(secondaryPanel)
+        setSecondaryPanel(null)
+      } else if (secondaryPanel?.appSessionId === panel.appSessionId) {
+        setSecondaryPanel(null)
+      }
+
+      // 2. Use latest tracked state for farewell
+      const appState = latestAppStateRef.current
+      latestAppStateRef.current = {}
+
+      // 3. Request LLM farewell if we have state, otherwise just show close note
+      const stateKeys = Object.keys(appState)
+      if (stateKeys.length > 0 && conversationId) {
+        const stateSummary = JSON.stringify(appState, null, 0)
+        sendMessage(`[The user closed the ${panel.appId} app. Here is the final game state: ${stateSummary}. Please give a brief, encouraging summary of how they did and ask if they want to play again or do something else.]`)
+      } else {
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: `close-${Date.now()}`,
+            role: 'assistant',
+            content: `\u{1F4CB} ${appLabel} closed.`,
+          },
+        ])
+      }
+    },
+    [activePanel, secondaryPanel, conversationId, sendMessage]
+  )
+
+  const handleGameOver = useCallback(
+    (result: { won: boolean; result?: string }) => {
+      if (result.won) {
+        fireConfetti()
+      }
+      // Close the panel after a delay so the user sees the final state
+      setTimeout(() => {
+        if (activePanel) {
+          closeApp(activePanel)
+        }
+      }, 3000)
+    },
+    [fireConfetti, activePanel, closeApp]
   )
 
   return (
@@ -645,7 +777,7 @@ export function ChatBridgeChat({ token, user, onLogout }: ChatBridgeChatProps) {
                   Start a conversation
                 </Title>
                 <Text size="sm" c="dimmed" ta="center" maw={400}>
-                  Ask me anything! Try &quot;let&apos;s play chess&quot; or &quot;help me study with flashcards&quot;
+                  Ask me anything! Try &quot;let&apos;s play Mario&quot;, &quot;let&apos;s play chess&quot;, or &quot;help me study with flashcards&quot;
                   to launch interactive apps.
                 </Text>
               </Stack>
@@ -670,6 +802,7 @@ export function ChatBridgeChat({ token, user, onLogout }: ChatBridgeChatProps) {
         <Group gap="xs" px="md" pb={4} pt="xs" className="max-w-4xl mx-auto" style={{ flex: '0 0 auto' }}>
           {[
             { label: 'Play Chess', icon: '\u265E', msg: "Let's play chess" },
+            { label: 'Play Mario', icon: '\uD83C\uDF44', msg: "Let's play Mario" },
             { label: 'Practice Math', icon: '\u2795', msg: "Let's practice math" },
             { label: 'Flashcards', icon: '\uD83D\uDCDD', msg: "Let's study with flashcards" },
             { label: 'Calendar', icon: '\uD83D\uDCC5', msg: "Open my calendar" },
@@ -715,10 +848,10 @@ export function ChatBridgeChat({ token, user, onLogout }: ChatBridgeChatProps) {
               ))}
             </Stack>
             <Group gap="xs">
-              <Button size="xs" color="green" onClick={confirmActions}>
+              <Button size="xs" color="green" onClick={confirmActions} loading={isConfirming} disabled={isConfirming}>
                 Confirm
               </Button>
-              <Button size="xs" variant="subtle" color="gray" onClick={cancelActions}>
+              <Button size="xs" variant="subtle" color="gray" onClick={cancelActions} disabled={isConfirming}>
                 Cancel
               </Button>
             </Group>
@@ -795,8 +928,8 @@ export function ChatBridgeChat({ token, user, onLogout }: ChatBridgeChatProps) {
         </Box>
       </Flex>
 
-      {/* Right panel — active app */}
-      {activePanel && (
+      {/* Right panel — active app(s) */}
+      {(activePanel || secondaryPanel) && (
         <Box
           style={{
             width: 440,
@@ -808,41 +941,66 @@ export function ChatBridgeChat({ token, user, onLogout }: ChatBridgeChatProps) {
             flexDirection: 'column',
           }}
         >
-          <Group p="sm" justify="space-between" style={{ flex: '0 0 auto', borderBottom: '1px solid var(--mantine-color-dark-5)' }}>
-            <Text size="sm" fw={600} c="white" tt="capitalize">
-              {activePanel.appId}
-            </Text>
-            <ActionIcon size="sm" variant="subtle" color="gray" onClick={() => {
-              const closedApp = activePanel.appId
-              // Remember which session was dismissed so the effect doesn't re-open it
-              dismissedSessionsRef.current.add(activePanel.appSessionId)
-              setActivePanel(null)
-              // Add a local note — don't send to LLM (avoids re-triggering tools)
-              setMessages((prev) => [
-                ...prev,
-                {
-                  id: `close-${Date.now()}`,
-                  role: 'assistant',
-                  content: `📋 ${closedApp.replace('-', ' ').replace(/\b\w/g, (c: string) => c.toUpperCase())} app closed.`,
-                },
-              ])
-            }}>
-              <IconX size={14} />
-            </ActionIcon>
-          </Group>
-          <Box style={{ flex: 1, padding: 8 }}>
-            <AppIframe
-              appId={activePanel.appId}
-              iframeUrl={activePanel.iframeUrl}
-              sessionState={activePanel.sessionState}
-              appSessionId={activePanel.appSessionId}
-              onToolRequest={handleToolRequest}
-              onGameOver={handleGameOver}
-              onStateChange={handleStateChange}
-              platformToken={token}
-              fillHeight
-            />
-          </Box>
+          {/* Primary panel (new app) */}
+          {activePanel && (
+            <>
+              <Group p="sm" justify="space-between" style={{ flex: '0 0 auto', borderBottom: '1px solid var(--mantine-color-dark-5)' }}>
+                <Text size="sm" fw={600} c="white" tt="capitalize">
+                  {activePanel.appId.replace(/-/g, ' ')}
+                </Text>
+                <ActionIcon size="sm" variant="subtle" color="gray" onClick={() => closeApp(activePanel)}>
+                  <IconX size={14} />
+                </ActionIcon>
+              </Group>
+              <Box style={{ flex: 1, padding: 8, minHeight: 0 }}>
+                <AppIframe
+                  appId={activePanel.appId}
+                  iframeUrl={activePanel.iframeUrl}
+                  sessionState={activePanel.sessionState}
+                  appSessionId={activePanel.appSessionId}
+                  onToolRequest={handleToolRequest}
+                  onGameOver={handleGameOver}
+                  onStateChange={handleStateChange}
+                  onGameEvent={handleGameEvent}
+                  platformToken={token}
+                  fillHeight
+                />
+              </Box>
+            </>
+          )}
+
+          {/* Split mode warning + secondary panel (old app that wasn't closed) */}
+          {secondaryPanel && (
+            <>
+              <Box px="sm" py={6} style={{ background: 'var(--mantine-color-yellow-9)', flex: '0 0 auto' }}>
+                <Text size="xs" c="white" ta="center">
+                  Two apps open — close one using the X button
+                </Text>
+              </Box>
+              <Group p="sm" justify="space-between" style={{ flex: '0 0 auto', borderBottom: '1px solid var(--mantine-color-dark-5)' }}>
+                <Text size="sm" fw={600} c="white" tt="capitalize">
+                  {secondaryPanel.appId.replace(/-/g, ' ')}
+                </Text>
+                <ActionIcon size="sm" variant="subtle" color="gray" onClick={() => closeApp(secondaryPanel)}>
+                  <IconX size={14} />
+                </ActionIcon>
+              </Group>
+              <Box style={{ flex: 1, padding: 8, minHeight: 0 }}>
+                <AppIframe
+                  appId={secondaryPanel.appId}
+                  iframeUrl={secondaryPanel.iframeUrl}
+                  sessionState={secondaryPanel.sessionState}
+                  appSessionId={secondaryPanel.appSessionId}
+                  onToolRequest={handleToolRequest}
+                  onGameOver={handleGameOver}
+                  onStateChange={handleStateChange}
+                  onGameEvent={handleGameEvent}
+                  platformToken={token}
+                  fillHeight
+                />
+              </Box>
+            </>
+          )}
         </Box>
       )}
     </Flex>
