@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { scopeToolsToIntent } from '../../src/chat/openrouter.js'
+import { scopeToolsToIntent } from '../../src/chat/tool-scoping.js'
 
 const allTools = [
   { function: { name: 'chess_start_game' } },
