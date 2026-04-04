@@ -7,7 +7,7 @@ interface LlmJobData {
   jobId: string
   conversationId: string
   userId: string
-  messages: Array<{ role: string; content: string; tool_call_id?: string; tool_calls?: any[] }>
+  messages: Array<{ role: 'system' | 'user' | 'assistant' | 'tool'; content: string; tool_call_id?: string; tool_calls?: any[] }>
   authToken: string
   timezone?: string
 }

@@ -166,7 +166,7 @@ chatRoutes.post('/conversations/:id/confirm-actions', requireAuth, async (req, r
       authToken,
     })
 
-    // Generate brief summary via LLM
+    // Generate brief summary via LLM (with 10s timeout to avoid hanging)
     let summary = `Done! ${results.length} action(s) completed.`
     try {
       const summaryResponse = await fetch('https://openrouter.ai/api/v1/chat/completions', {
@@ -184,6 +184,7 @@ chatRoutes.post('/conversations/:id/confirm-actions', requireAuth, async (req, r
           ],
           stream: false,
         }),
+        signal: AbortSignal.timeout(10_000),
       })
       if (summaryResponse.ok) {
         const summaryData = await summaryResponse.json()
@@ -191,7 +192,7 @@ chatRoutes.post('/conversations/:id/confirm-actions', requireAuth, async (req, r
         if (llmSummary) summary = llmSummary
       }
     } catch {
-      // Fallback to default summary on LLM error
+      // Fallback to default summary on LLM error or timeout
     }
 
     // Persist the confirmation result as an assistant message
@@ -255,6 +256,7 @@ chatRoutes.post('/conversations/:id/close-app', requireAuth, async (req, res, ne
           ],
           stream: false,
         }),
+        signal: AbortSignal.timeout(10_000),
       })
       if (farewellResponse.ok) {
         const data = await farewellResponse.json()

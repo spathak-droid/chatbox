@@ -604,6 +604,7 @@ export function ChatBridgeChat({ token, user, onLogout }: ChatBridgeChatProps) {
       const res = await fetch(`${API_BASE}/chat/conversations/${conversationId}/confirm-actions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        signal: AbortSignal.timeout(30_000),
       })
       if (res.ok) {
         const data = await res.json()
