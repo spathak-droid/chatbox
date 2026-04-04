@@ -9,6 +9,7 @@ export const manifest: AppManifest = {
   category: 'productivity',
   authType: 'oauth2',
   baseUrl,
+  trustTier: 'internal' as const,
   iframeUrl: `${baseUrl}/app`,
   permissions: ['calendar.events'],
   activationKeywords: ['calendar', 'schedule', 'study plan', 'events', 'planner'],

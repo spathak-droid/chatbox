@@ -14,6 +14,8 @@ export const AppToolDefinitionSchema = z.object({
   parameters: z.array(AppToolParameterSchema),
 })
 
+export const TrustTierSchema = z.enum(['internal', 'verified', 'unverified'])
+
 export const AppManifestSchema = z.object({
   id: z.string(),
   name: z.string(),
@@ -24,9 +26,11 @@ export const AppManifestSchema = z.object({
   iframeUrl: z.string().url().optional(),
   permissions: z.array(z.string()).default([]),
   activationKeywords: z.array(z.string()).default([]),
+  trustTier: TrustTierSchema.default('unverified'),
   tools: z.array(AppToolDefinitionSchema),
 })
 
+export type TrustTier = z.infer<typeof TrustTierSchema>
 export type AppToolParameter = z.infer<typeof AppToolParameterSchema>
 export type AppToolDefinition = z.infer<typeof AppToolDefinitionSchema>
 export type AppManifest = z.infer<typeof AppManifestSchema>

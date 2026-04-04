@@ -9,6 +9,7 @@ export const manifest: AppManifest = {
   category: 'education',
   authType: 'none',
   baseUrl,
+  trustTier: 'internal' as const,
   iframeUrl: `${baseUrl}/app`,
   permissions: [],
   activationKeywords: ['flash', 'study', 'quiz', 'review', 'learn'],

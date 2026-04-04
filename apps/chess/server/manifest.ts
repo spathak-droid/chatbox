@@ -7,6 +7,7 @@ export const manifest = {
   category: 'game' as const,
   authType: 'none' as const,
   baseUrl,
+  trustTier: 'internal' as const,
   iframeUrl: `${baseUrl}/app`,
   permissions: [],
   activationKeywords: ['chess', 'play a game', 'play$'],
