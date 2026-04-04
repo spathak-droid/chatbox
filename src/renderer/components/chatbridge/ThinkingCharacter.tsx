@@ -36,6 +36,11 @@ export function ThinkingCharacter({ mode, containerRef }: ThinkingCharacterProps
   const followCursorRef = useRef(false)
   const mousePositionRef = useRef({ x: 0, y: 0 })
   const followRafRef = useRef<number | null>(null)
+  const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const hasMovedRef = useRef(false)
+  const [showDanceMenu, setShowDanceMenu] = useState(false)
+  const danceTimelineRef = useRef<gsap.core.Timeline | null>(null)
+  const [hovered, setHovered] = useState(false)
 
   // Sync refs
   useEffect(() => { modeRef.current = mode }, [mode])
@@ -187,12 +192,113 @@ export function ThinkingCharacter({ mode, containerRef }: ThinkingCharacterProps
     }
   }, [])
 
+  const playDance = useCallback((danceName: string) => {
+    setShowDanceMenu(false)
+    if (danceTimelineRef.current) {
+      danceTimelineRef.current.kill()
+      danceTimelineRef.current = null
+    }
+    resetPose()
+
+    const outer = outerRef.current
+    const bob = bobRef.current
+    if (!outer || !bob) return
+
+    const tl = gsap.timeline({
+      onComplete: () => {
+        danceTimelineRef.current = null
+        resetPose()
+      },
+    })
+    danceTimelineRef.current = tl
+
+    // Happy mouth for all dances
+    if (mouthRef.current) tl.to(mouthRef.current, { attr: { d: 'M 30 66 Q 40 80 50 66' }, duration: 0.15 }, 0)
+    // Happy eyes
+    tl.to([leftEyeRef.current, rightEyeRef.current].filter(Boolean), { scaleY: 0.4, transformOrigin: '50% 50%', duration: 0.15 }, 0)
+
+    if (danceName === 'spin') {
+      tl.to(outer, { rotation: 360, duration: 0.6, ease: 'power2.inOut' }, 0)
+      tl.to(outer, { rotation: 720, duration: 0.6, ease: 'power2.inOut' }, 0.6)
+      tl.set(outer, { rotation: 0 }, 1.2)
+      if (leftArmRef.current) tl.to(leftArmRef.current, { rotation: -80, transformOrigin: '50% 0%', duration: 0.3 }, 0)
+      if (rightArmRef.current) tl.to(rightArmRef.current, { rotation: 80, transformOrigin: '50% 0%', duration: 0.3 }, 0)
+      if (leftArmRef.current) tl.to(leftArmRef.current, { rotation: 0, duration: 0.3 }, 1)
+      if (rightArmRef.current) tl.to(rightArmRef.current, { rotation: 0, duration: 0.3 }, 1)
+    }
+
+    if (danceName === 'flip') {
+      tl.to(bob, { y: -60, duration: 0.3, ease: 'power2.out' }, 0)
+      tl.to(bob, { scaleY: -1, duration: 0.001 }, 0.3)
+      tl.to(bob, { scaleY: 1, duration: 0.001 }, 0.5)
+      tl.to(bob, { y: 0, duration: 0.3, ease: 'bounce.out' }, 0.5)
+      if (leftArmRef.current) tl.to(leftArmRef.current, { rotation: -60, transformOrigin: '50% 0%', duration: 0.15 }, 0)
+      if (rightArmRef.current) tl.to(rightArmRef.current, { rotation: 60, transformOrigin: '50% 0%', duration: 0.15 }, 0)
+      if (leftArmRef.current) tl.to(leftArmRef.current, { rotation: 0, duration: 0.3 }, 0.6)
+      if (rightArmRef.current) tl.to(rightArmRef.current, { rotation: 0, duration: 0.3 }, 0.6)
+    }
+
+    if (danceName === 'wave') {
+      const armRepeat = { yoyo: true, repeat: 5, ease: 'sine.inOut' }
+      if (rightArmRef.current) tl.to(rightArmRef.current, { rotation: 70, transformOrigin: '50% 0%', duration: 0.2, ...armRepeat }, 0)
+      if (leftArmRef.current) tl.to(leftArmRef.current, { rotation: -70, transformOrigin: '50% 0%', duration: 0.25, ...armRepeat }, 0.1)
+      tl.to(bob, { y: -6, duration: 0.2, yoyo: true, repeat: 5, ease: 'sine.inOut' }, 0)
+      if (leftLegRef.current) tl.to(leftLegRef.current, { rotation: 10, transformOrigin: '50% 0%', duration: 0.2, yoyo: true, repeat: 5 }, 0)
+      if (rightLegRef.current) tl.to(rightLegRef.current, { rotation: -10, transformOrigin: '50% 0%', duration: 0.2, yoyo: true, repeat: 5 }, 0.1)
+    }
+
+    if (danceName === 'moonwalk') {
+      tl.to(outer, { scaleX: -1, duration: 0.1 }, 0)
+      if (leftLegRef.current) tl.to(leftLegRef.current, { rotation: 20, transformOrigin: '50% 0%', duration: 0.3, yoyo: true, repeat: 5, ease: 'sine.inOut' }, 0.1)
+      if (rightLegRef.current) tl.to(rightLegRef.current, { rotation: -20, transformOrigin: '50% 0%', duration: 0.3, yoyo: true, repeat: 5, ease: 'sine.inOut' }, 0.25)
+      tl.to(outer, { x: `+=${80}`, duration: 2, ease: 'linear' }, 0.1)
+      tl.to(bob, { y: -3, duration: 0.15, yoyo: true, repeat: 9 }, 0.1)
+      tl.to(outer, { scaleX: 1, duration: 0.1 }, 2.2)
+    }
+
+    if (danceName === 'headbang') {
+      tl.to(bob, { rotation: 15, duration: 0.12, yoyo: true, repeat: 11, ease: 'power2.in', transformOrigin: '50% 100%' }, 0)
+      if (antennaRef.current) tl.to(antennaRef.current, { attr: { cx: '+=8' }, duration: 0.1, yoyo: true, repeat: 11, ease: 'sine.inOut' }, 0)
+      if (leftArmRef.current) tl.to(leftArmRef.current, { rotation: -40, transformOrigin: '50% 0%', duration: 0.12, yoyo: true, repeat: 11 }, 0)
+      if (rightArmRef.current) tl.to(rightArmRef.current, { rotation: 40, transformOrigin: '50% 0%', duration: 0.12, yoyo: true, repeat: 11 }, 0)
+    }
+
+    if (danceName === 'disco') {
+      // Alternate pointing arms + leg kicks
+      if (rightArmRef.current) {
+        tl.to(rightArmRef.current, { rotation: -70, x: -10, y: -15, transformOrigin: '50% 0%', duration: 0.25 }, 0)
+        tl.to(rightArmRef.current, { rotation: 70, x: 10, y: -15, duration: 0.25 }, 0.5)
+        tl.to(rightArmRef.current, { rotation: -70, x: -10, y: -15, duration: 0.25 }, 1.0)
+        tl.to(rightArmRef.current, { rotation: 70, x: 10, y: -15, duration: 0.25 }, 1.5)
+        tl.to(rightArmRef.current, { rotation: 0, x: 0, y: 0, duration: 0.2 }, 2.0)
+      }
+      if (leftArmRef.current) {
+        tl.to(leftArmRef.current, { rotation: 70, x: 10, y: -15, transformOrigin: '50% 0%', duration: 0.25 }, 0.25)
+        tl.to(leftArmRef.current, { rotation: -70, x: -10, y: -15, duration: 0.25 }, 0.75)
+        tl.to(leftArmRef.current, { rotation: 70, x: 10, y: -15, duration: 0.25 }, 1.25)
+        tl.to(leftArmRef.current, { rotation: -70, x: -10, y: -15, duration: 0.25 }, 1.75)
+        tl.to(leftArmRef.current, { rotation: 0, x: 0, y: 0, duration: 0.2 }, 2.0)
+      }
+      tl.to(bob, { y: -10, duration: 0.25, yoyo: true, repeat: 7, ease: 'power2.out' }, 0)
+      if (leftLegRef.current) tl.to(leftLegRef.current, { rotation: 25, transformOrigin: '50% 0%', duration: 0.25, yoyo: true, repeat: 7 }, 0)
+      if (rightLegRef.current) tl.to(rightLegRef.current, { rotation: -25, transformOrigin: '50% 0%', duration: 0.25, yoyo: true, repeat: 7 }, 0.125)
+      tl.to(outer, { rotation: 5, duration: 0.25, yoyo: true, repeat: 7, ease: 'sine.inOut' }, 0)
+    }
+  }, [resetPose])
+
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
     e.preventDefault()
     e.stopPropagation()
     const outer = outerRef.current
     if (!outer) return
 
+    // Close dance menu if open
+    if (showDanceMenu) {
+      setShowDanceMenu(false)
+      return
+    }
+
+    hasMovedRef.current = false
     draggingRef.current = true
     dragStartRef.current = {
       mouseX: e.clientX,
@@ -209,10 +315,27 @@ export function ThinkingCharacter({ mode, containerRef }: ThinkingCharacterProps
       setSelected(true)
     }
 
+    // Start long-press timer (600ms without moving = dance menu)
+    if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current)
+    longPressTimerRef.current = setTimeout(() => {
+      if (!hasMovedRef.current) {
+        draggingRef.current = false
+        setShowDanceMenu(true)
+      }
+    }, 600)
+
     const handleMouseMove = (ev: MouseEvent) => {
       if (!draggingRef.current || !outer) return
       const dx = ev.clientX - dragStartRef.current.mouseX
       const dy = ev.clientY - dragStartRef.current.mouseY
+      // Mark as moved if dragged more than 5px
+      if (Math.abs(dx) > 5 || Math.abs(dy) > 5) {
+        hasMovedRef.current = true
+        if (longPressTimerRef.current) {
+          clearTimeout(longPressTimerRef.current)
+          longPressTimerRef.current = null
+        }
+      }
       gsap.set(outer, {
         x: dragStartRef.current.elX + dx,
         y: dragStartRef.current.elY + dy,
@@ -221,15 +344,21 @@ export function ThinkingCharacter({ mode, containerRef }: ThinkingCharacterProps
 
     const handleMouseUp = () => {
       draggingRef.current = false
-      setSelected(false)
-      resetPose()
+      if (longPressTimerRef.current) {
+        clearTimeout(longPressTimerRef.current)
+        longPressTimerRef.current = null
+      }
+      if (!showDanceMenu) {
+        setSelected(false)
+        resetPose()
+      }
       document.removeEventListener('mousemove', handleMouseMove)
       document.removeEventListener('mouseup', handleMouseUp)
     }
 
     document.addEventListener('mousemove', handleMouseMove)
     document.addEventListener('mouseup', handleMouseUp)
-  }, [stopWalking, resetPose])
+  }, [stopWalking, resetPose, showDanceMenu])
 
   // ===== ALL useEffect HOOKS BELOW =====
 
@@ -487,6 +616,8 @@ export function ThinkingCharacter({ mode, containerRef }: ThinkingCharacterProps
       ref={outerRef}
       onMouseDown={followCursor ? undefined : handleMouseDown}
       onDoubleClick={handleDoubleClick}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
       style={{
         position: 'absolute',
         top: 0,
@@ -500,6 +631,83 @@ export function ThinkingCharacter({ mode, containerRef }: ThinkingCharacterProps
         filter: followCursor ? 'drop-shadow(0 0 12px rgba(34, 230, 130, 0.8))' : selected ? 'drop-shadow(0 0 8px rgba(34, 139, 230, 0.8))' : 'none',
       }}
     >
+      {/* Hint tooltip on hover */}
+      {hovered && !showDanceMenu && !selected && !followCursor && (
+        <div style={{
+          position: 'absolute',
+          bottom: '108px',
+          left: '50%',
+          transform: 'translateX(-50%)',
+          background: 'rgba(20, 20, 35, 0.9)',
+          borderRadius: 8,
+          padding: '5px 10px',
+          whiteSpace: 'nowrap',
+          fontSize: 11,
+          color: '#adb5bd',
+          boxShadow: '0 2px 8px rgba(0,0,0,0.3)',
+          border: '1px solid rgba(255,255,255,0.1)',
+          pointerEvents: 'none',
+          zIndex: 20,
+        }}>
+          <span style={{ color: '#74c0fc' }}>Hold</span> to dance &middot; <span style={{ color: '#74c0fc' }}>Double-click</span> to follow
+        </div>
+      )}
+
+      {/* Dance moves menu */}
+      {showDanceMenu && (
+        <div
+          style={{
+            position: 'absolute',
+            bottom: '105px',
+            left: '50%',
+            transform: 'translateX(-50%)',
+            background: 'rgba(20, 20, 35, 0.95)',
+            borderRadius: 12,
+            padding: '8px 4px',
+            display: 'flex',
+            gap: 4,
+            boxShadow: '0 4px 20px rgba(0,0,0,0.5), 0 0 15px rgba(34, 139, 230, 0.3)',
+            border: '1px solid rgba(34, 139, 230, 0.3)',
+            zIndex: 20,
+            whiteSpace: 'nowrap',
+          }}
+          onMouseDown={(e) => e.stopPropagation()}
+        >
+          {[
+            { id: 'spin', emoji: '\uD83C\uDF00' },
+            { id: 'flip', emoji: '\uD83E\uDD38' },
+            { id: 'wave', emoji: '\uD83D\uDC4B' },
+            { id: 'moonwalk', emoji: '\uD83D\uDD7A' },
+            { id: 'headbang', emoji: '\uD83E\uDDD1\u200D\uD83C\uDFA4' },
+            { id: 'disco', emoji: '\uD83D\uDD7A' },
+          ].map((dance) => (
+            <button
+              key={dance.id}
+              onClick={(e) => {
+                e.stopPropagation()
+                setSelected(false)
+                playDance(dance.id)
+              }}
+              title={dance.id}
+              style={{
+                background: 'transparent',
+                border: 'none',
+                borderRadius: 8,
+                padding: '6px 8px',
+                cursor: 'pointer',
+                fontSize: 18,
+                lineHeight: 1,
+                transition: 'background 0.15s ease',
+              }}
+              onMouseEnter={(e) => { (e.target as HTMLElement).style.background = 'rgba(34, 139, 230, 0.25)' }}
+              onMouseLeave={(e) => { (e.target as HTMLElement).style.background = 'transparent' }}
+            >
+              {dance.emoji}
+            </button>
+          ))}
+        </div>
+      )}
+
       <div ref={bobRef}>
         <svg viewBox="0 0 80 100" width="80" height="100">
           <defs>
