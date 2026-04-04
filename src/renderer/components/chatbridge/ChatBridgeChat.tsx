@@ -8,7 +8,6 @@ import {
   Group,
   Loader,
   NavLink,
-  Paper,
   ScrollArea,
   Stack,
   Text,
@@ -18,6 +17,7 @@ import { IconMenu2, IconMessage, IconPlus, IconSend, IconTrash, IconX } from '@t
 import { AppIframe } from '@/components/app-blocks/AppIframe'
 import { ThinkingCharacter, type CharacterMode } from './ThinkingCharacter'
 import { MessageBubble } from './MessageBubble'
+import { ConfirmActionsCard } from './ConfirmActionsCard'
 import { useChatMessages, type AppPanelState } from './hooks/useChatMessages'
 import { useAppPanel } from './hooks/useAppPanel'
 
@@ -256,39 +256,12 @@ export function ChatBridgeChat({ token, user, onLogout }: ChatBridgeChatProps) {
         </Group>
 
         {/* Pending confirmation card */}
-        {pendingActions.length > 0 && (
-          <Paper
-            p="md"
-            mx="md"
-            mb="xs"
-            radius="md"
-            style={{
-              background: 'var(--mantine-color-dark-6)',
-              border: '1px solid var(--mantine-color-yellow-8)',
-              flex: '0 0 auto',
-            }}
-          >
-            <Text size="sm" fw={600} c="yellow" mb="xs">
-              Confirm these changes to your calendar:
-            </Text>
-            <Stack gap={4} mb="sm">
-              {pendingActions.map((a) => (
-                <Text key={a.id} size="sm" c="dimmed">
-                  {a.description.includes('Delete') ? '\u274C' : a.description.includes('Update') ? '\u270F\uFE0F' : '\u2795'}{' '}
-                  {a.description}
-                </Text>
-              ))}
-            </Stack>
-            <Group gap="xs">
-              <Button size="xs" color="green" onClick={confirmActions} loading={isConfirming} disabled={isConfirming}>
-                Confirm
-              </Button>
-              <Button size="xs" variant="subtle" color="gray" onClick={cancelActions} disabled={isConfirming}>
-                Cancel
-              </Button>
-            </Group>
-          </Paper>
-        )}
+        <ConfirmActionsCard
+          actions={pendingActions}
+          onConfirm={confirmActions}
+          onCancel={cancelActions}
+          loading={isConfirming}
+        />
 
         {/* Input — matches Chatbox InputBox styling */}
         <Box pt={0} pb="sm" px="sm" style={{ flex: '0 0 auto' }}>
