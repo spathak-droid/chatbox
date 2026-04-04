@@ -270,6 +270,22 @@ chatRoutes.post('/conversations/:id/close-app', requireAuth, async (req, res, ne
   }
 })
 
+// Get moderation events for a conversation (teacher/admin access)
+chatRoutes.get('/conversations/:id/moderation-log', requireAuth, async (req, res, next) => {
+  try {
+    const conversationId = req.params.id
+    const result = await query(
+      `SELECT ml.* FROM moderation_log ml
+       WHERE ml.conversation_id = $1
+       ORDER BY ml.created_at DESC LIMIT 50`,
+      [conversationId]
+    )
+    res.json({ events: result.rows })
+  } catch (err) {
+    next(err)
+  }
+})
+
 chatRoutes.get('/conversations/:id/messages', async (req, res, next) => {
   try {
     const result = await query(
