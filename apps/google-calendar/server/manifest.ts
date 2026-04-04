@@ -155,5 +155,10 @@ export const manifest: AppManifest = {
         },
       ],
     },
+    {
+      name: 'calendar_end_session',
+      description: 'End the current calendar/study planner session. Call this when the user wants to switch to a different app or is done with the calendar.',
+      parameters: [],
+    },
   ],
 }

@@ -42,6 +42,12 @@ export async function handleTool(
       return handleUpdateEvent(args, sessionState)
     case 'calendar_search_events':
       return handleSearchEvents(args, sessionState)
+    case 'calendar_end_session':
+      return {
+        status: 'ok',
+        data: { finished: true },
+        summary: 'Calendar session ended.',
+      }
     default:
       return { status: 'error', error: `Unknown tool: ${toolName}` }
   }
