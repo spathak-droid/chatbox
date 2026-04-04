@@ -1,6 +1,6 @@
 import { config } from '../config.js'
 import { scopeToolsToIntent } from './tool-scoping.js'
-import { sanitizeStateForLLM, sanitizeToolSummary } from '../security/sanitize.js'
+import { sanitizeToolSummary } from '../security/sanitize.js'
 import { summarizeOldToolCalls, ChatMessage } from './message-summarizer.js'
 import { getAllToolSchemas, findAppByToolName, getCachedApps } from '../apps/registry.js'
 import { routeToolCall, DESTRUCTIVE_TOOLS } from '../apps/tool-router.js'
@@ -10,6 +10,7 @@ import { StreamModerator, logModerationEvent } from '../security/moderation.js'
 import { langfuse } from '../lib/langfuse.js'
 import { persistAssistantMessage } from './message-persistence.js'
 import { buildSystemPrompt } from './system-prompt.js'
+import { buildAppContext } from './app-context.js'
 
 export async function streamChatWithTools(
   messages: ChatMessage[],
@@ -23,41 +24,13 @@ export async function streamChatWithTools(
 
   // Fetch active sessions for app context and tool scoping
   const sessions = await getSessionsForConversation(conversationId)
-  const relevantSessions = sessions.filter((s) => s.status === 'active' || s.status === 'completed' || s.summary)
+
+  // Build app context from sessions and last user message
+  const lastUserMessage = messages.filter(m => m.role === 'user').pop()?.content?.toLowerCase() || ''
+  const { activeAppId, contextLine } = buildAppContext(sessions, lastUserMessage)
 
   // Build and inject system prompt (includes app context when present)
-  const appContextStr = relevantSessions.length > 0
-    ? (() => {
-        const activeSession = relevantSessions.find(s => s.status === 'active')
-        const lastMsg = messages.filter(m => m.role === 'user').pop()?.content?.toLowerCase() || ''
-        const intentApp = /chess|play a game|play$|let'?s play/.test(lastMsg) ? 'chess'
-          : /math|practice|problems|addition|algebra|subtract|multipl|divid/.test(lastMsg) ? 'math-practice'
-          : /flash|study|quiz|review|learn about/.test(lastMsg) ? 'flashcards'
-          : /calendar|schedule|event|study block|study plan|delete.*event|add.*event|plan.*week/.test(lastMsg) ? 'google-calendar'
-          : null
-        const isSwitching = activeSession && intentApp && activeSession.appId !== intentApp
-        return relevantSessions
-          .map((s) => {
-            if (s.status === 'active') {
-              if (isSwitching && s.appId === activeSession.appId) {
-                return `[Switching from ${activeSession.appId} to ${intentApp}. You MUST call the end tool for ${activeSession.appId} first, then the start tool for ${intentApp}. Briefly discuss what happened in ${activeSession.appId} before moving on.]`
-              }
-              const state = s.state as Record<string, unknown> | null
-              if (state?.gameOver) {
-                return `[Completed app: ${s.appId} — game is finished. If user wants to play again, call the start tool immediately.]`
-              }
-              return `[Active app: ${s.appId}, state: ${sanitizeStateForLLM(s.appId, s.state as Record<string, unknown>)}]`
-            }
-            if (s.status === 'completed' || s.summary) {
-              return `[Completed app: ${s.appId} — ${s.summary || 'finished'}. If user wants to play again, call the start tool immediately.]`
-            }
-            return ''
-          })
-          .filter(Boolean)
-          .join('\n')
-      })()
-    : null
-  const systemContent = buildSystemPrompt(appContextStr, clientTimezone)
+  const systemContent = buildSystemPrompt(contextLine, clientTimezone)
   const sysIdx = messages.findIndex((m) => m.role === 'system')
   if (sysIdx >= 0) {
     messages[sysIdx].content = systemContent + '\n\n' + messages[sysIdx].content
@@ -73,9 +46,6 @@ export async function streamChatWithTools(
 
   // ============ DYNAMIC TOOL SCOPING ============
   // Only send tools relevant to the user's current message
-  const lastUserMessage = messages.filter(m => m.role === 'user').pop()?.content?.toLowerCase() || ''
-  // Find the currently active app (if any) so follow-up messages scope to it
-  const activeAppId = relevantSessions.find(s => s.status === 'active')?.appId || null
   const scopedTools = scopeToolsToIntent(toolSchemas, lastUserMessage, activeAppId)
   console.log(`[SCOPE] activeApp=${activeAppId}, msg="${lastUserMessage.slice(0, 50)}", tools=[${scopedTools.map((t: any) => t.function?.name).join(', ')}]`)
 
