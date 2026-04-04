@@ -1087,16 +1087,16 @@ function MessageBubble({
   const isUser = message.role === 'user'
 
   if (isUser) {
-    // User message — gray pill with avatar, right-aligned
+    // User message — blue pill, right-aligned
     return (
       <Flex gap="sm" align="flex-start" justify="flex-end" px="md" py="xs">
         <Box
           className="rounded-2xl px-4 py-2"
           style={{
-            background: 'var(--chatbox-background-secondary, var(--mantine-color-dark-6))',
+            background: '#228be6',
           }}
         >
-          <Text size="sm" c="chatbox-primary" style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+          <Text size="sm" c="white" style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
             {message.content}
           </Text>
         </Box>
@@ -1124,29 +1124,10 @@ function MessageBubble({
       >
         🎓
       </Avatar>
-      <Box
-        className="rounded-2xl px-4 py-2"
-        style={{
-          flex: 1,
-          wordBreak: 'break-word',
-          background: 'var(--chatbox-background-secondary, var(--mantine-color-dark-6))',
-        }}
-      >
-        {isThinking ? (
-          <Flex gap={6} align="center" py={4}>
-            <Box className="thinking-dot" style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--chatbox-tint-brand, #228be6)', animation: 'thinking-bounce 1.4s ease-in-out infinite', animationDelay: '0s' }} />
-            <Box className="thinking-dot" style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--chatbox-tint-brand, #228be6)', animation: 'thinking-bounce 1.4s ease-in-out infinite', animationDelay: '0.2s' }} />
-            <Box className="thinking-dot" style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--chatbox-tint-brand, #228be6)', animation: 'thinking-bounce 1.4s ease-in-out infinite', animationDelay: '0.4s' }} />
-          </Flex>
-        ) : (
-          <Text size="sm" c="chatbox-primary" style={{ whiteSpace: 'pre-wrap', lineHeight: 1.7 }}>
-            {message.content}
-          </Text>
-        )}
-
-        {/* Tool call indicators */}
+      <Box style={{ flex: 1, wordBreak: 'break-word' }}>
+        {/* Tool call indicators — outside the box */}
         {message.toolCalls && message.toolCalls.length > 0 && (
-          <Flex gap={4} mt="xs" wrap="wrap">
+          <Flex gap={4} mb={6} wrap="wrap">
             {message.toolCalls.map((tc) => (
               <Badge key={tc.id} size="xs" variant="light" color="gray" radius="sm">
                 {tc.name}
@@ -1154,6 +1135,26 @@ function MessageBubble({
             ))}
           </Flex>
         )}
+
+        {isThinking ? (
+          <Flex gap={6} align="center" py={4}>
+            <Box className="thinking-dot" style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--chatbox-tint-brand, #228be6)', animation: 'thinking-bounce 1.4s ease-in-out infinite', animationDelay: '0s' }} />
+            <Box className="thinking-dot" style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--chatbox-tint-brand, #228be6)', animation: 'thinking-bounce 1.4s ease-in-out infinite', animationDelay: '0.2s' }} />
+            <Box className="thinking-dot" style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--chatbox-tint-brand, #228be6)', animation: 'thinking-bounce 1.4s ease-in-out infinite', animationDelay: '0.4s' }} />
+          </Flex>
+        ) : message.content ? (
+          <Box
+            className="rounded-2xl px-4 py-2"
+            style={{
+              background: 'var(--chatbox-background-secondary, var(--mantine-color-dark-6))',
+              display: 'inline-block',
+            }}
+          >
+            <Text size="sm" c="chatbox-primary" style={{ whiteSpace: 'pre-wrap', lineHeight: 1.7 }}>
+              {message.content}
+            </Text>
+          </Box>
+        ) : null}
       </Box>
     </Flex>
   )
