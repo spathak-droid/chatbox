@@ -558,6 +558,11 @@
 
     async function requestRefreshEvents() {
       if (!state.connected) return
+      // Wait for access token before attempting API call
+      if (!state.accessToken) {
+        // Token not available yet — render() will fetch it from platform
+        return
+      }
       try {
         const res = await fetch('/api/tools/calendar_list_events', {
           method: 'POST',
@@ -577,6 +582,8 @@
     }
 
     function showError(text) {
+      // Suppress internal tool errors that are not user-actionable
+      if (text.includes('calendar_start_connect') || text.includes('not connected')) return
       errorMsgEl.textContent = text
       errorMsgEl.classList.remove('hidden')
       sendResize()
