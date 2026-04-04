@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef } from 'react'
 import confetti from 'canvas-confetti'
 import type { ChatMessage, AppPanelState } from './useChatMessages'
-import type { CharacterMode } from '../ThinkingCharacter'
+import type { CharacterMode } from '../types'
 
 const API_BASE = (import.meta.env.VITE_API_BASE as string) || 'http://localhost:3000/api'
 

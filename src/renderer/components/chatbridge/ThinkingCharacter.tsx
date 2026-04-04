@@ -1,7 +1,11 @@
 import { useEffect, useRef, useCallback, useState } from 'react'
 import gsap from 'gsap'
+import type { CharacterMode } from './types'
+import { useCharacterMovement } from './hooks/useCharacterMovement'
+import { useCharacterAnimation } from './hooks/useCharacterAnimation'
+import { useCharacterDrag } from './hooks/useCharacterDrag'
 
-export type CharacterMode = 'idle' | 'thinking' | 'tool_executing' | 'streaming' | 'celebrating' | 'confused'
+export type { CharacterMode }
 
 interface ThinkingCharacterProps {
   mode: CharacterMode
@@ -9,6 +13,7 @@ interface ThinkingCharacterProps {
 }
 
 export function ThinkingCharacter({ mode, containerRef }: ThinkingCharacterProps) {
+  // ===== SVG element refs =====
   const outerRef = useRef<HTMLDivElement>(null)
   const bobRef = useRef<HTMLDivElement>(null)
   const bodyRef = useRef<SVGEllipseElement>(null)
@@ -23,29 +28,116 @@ export function ThinkingCharacter({ mode, containerRef }: ThinkingCharacterProps
   const rightLegRef = useRef<SVGRectElement>(null)
   const antennaRef = useRef<SVGCircleElement>(null)
   const thoughtDotsRef = useRef<SVGGElement>(null)
-  const modeRef = useRef<CharacterMode>(mode)
+
+  // ===== Animation timeline refs =====
   const modeTimelineRef = useRef<gsap.core.Timeline | null>(null)
   const walkTimelineRef = useRef<gsap.core.Timeline | null>(null)
   const roamDelayRef = useRef<gsap.core.Tween | null>(null)
   const selectedTimelineRef = useRef<gsap.core.Timeline | null>(null)
+  const danceTimelineRef = useRef<gsap.core.Timeline | null>(null)
+
+  // ===== State =====
   const [selected, setSelected] = useState(false)
-  const selectedRef = useRef(false)
-  const draggingRef = useRef(false)
-  const dragStartRef = useRef({ mouseX: 0, mouseY: 0, elX: 0, elY: 0 })
   const [followCursor, setFollowCursor] = useState(false)
+  const [showDanceMenu, setShowDanceMenu] = useState(false)
+  const [hovered, setHovered] = useState(false)
+
+  // ===== Synced refs (stable references for animation callbacks) =====
+  const modeRef = useRef<CharacterMode>(mode)
+  const selectedRef = useRef(false)
   const followCursorRef = useRef(false)
   const mousePositionRef = useRef({ x: 0, y: 0 })
   const followRafRef = useRef<number | null>(null)
-  const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const hasMovedRef = useRef(false)
-  const [showDanceMenu, setShowDanceMenu] = useState(false)
-  const danceTimelineRef = useRef<gsap.core.Timeline | null>(null)
-  const [hovered, setHovered] = useState(false)
 
-  // Sync refs
   useEffect(() => { modeRef.current = mode }, [mode])
   useEffect(() => { selectedRef.current = selected }, [selected])
   useEffect(() => { followCursorRef.current = followCursor }, [followCursor])
+
+  // ===== Hooks =====
+
+  // Animation hook provides resetPose, startMoodAnimation, playDance
+  // Movement hook provides walkTo, stopWalking, createWalkAnimation
+  // Both need each other, so we wire them with a two-pass approach:
+  // 1. Movement first (no dependency on animation)
+  // 2. Animation uses walkTo/stopWalking from movement
+
+  // We need resetPose before movement (follow cursor cleanup uses it),
+  // but resetPose doesn't depend on movement, so we extract it via animation hook.
+  // The circular dependency is: movement.followCursor cleanup calls resetPose,
+  // and animation.modeChange calls walkTo. We break the cycle by passing
+  // resetPose into movement params.
+
+  const { resetPose, startMoodAnimation, playDance } = useCharacterAnimation({
+    mode,
+    selected,
+    followCursor,
+    outerRef,
+    bobRef,
+    leftEyeRef,
+    rightEyeRef,
+    leftPupilRef,
+    rightPupilRef,
+    mouthRef,
+    leftArmRef,
+    rightArmRef,
+    leftLegRef,
+    rightLegRef,
+    antennaRef,
+    thoughtDotsRef,
+    modeTimelineRef,
+    selectedTimelineRef,
+    danceTimelineRef,
+    roamDelayRef,
+    modeRef,
+    selectedRef,
+    followCursorRef,
+    containerRef,
+    // These will be provided after movement hook, but since they're used in useEffects
+    // (not called during render), they'll be available by the time they're needed.
+    // We use a stable callback wrapper to avoid the chicken-and-egg problem.
+    walkTo: (...args: Parameters<typeof walkToRef.current>) => walkToRef.current(...args),
+    stopWalking: () => stopWalkingRef.current(),
+    setShowDanceMenu,
+  })
+
+  // Stable refs for the cross-hook dependency
+  const walkToRef = useRef<(targetX: number, targetY: number, onArrive: () => void) => void>(() => {})
+  const stopWalkingRef = useRef<() => void>(() => {})
+
+  const { walkTo, stopWalking, createWalkAnimation } = useCharacterMovement({
+    outerRef,
+    containerRef,
+    leftLegRef,
+    rightLegRef,
+    walkTimelineRef,
+    roamDelayRef,
+    followRafRef,
+    mousePositionRef,
+    modeRef,
+    selectedRef,
+    followCursorRef,
+    followCursor,
+    mouthRef,
+    leftEyeRef,
+    rightEyeRef,
+    resetPose,
+  })
+
+  // Keep stable refs updated
+  useEffect(() => { walkToRef.current = walkTo }, [walkTo])
+  useEffect(() => { stopWalkingRef.current = stopWalking }, [stopWalking])
+
+  const { handleMouseDown } = useCharacterDrag({
+    outerRef,
+    roamDelayRef,
+    walkTimelineRef,
+    selectedRef,
+    stopWalking,
+    resetPose,
+    showDanceMenu,
+    setShowDanceMenu,
+    setSelected,
+  })
 
   const handleDoubleClick = useCallback((e: React.MouseEvent) => {
     e.preventDefault()
@@ -53,564 +145,7 @@ export function ThinkingCharacter({ mode, containerRef }: ThinkingCharacterProps
     setFollowCursor(prev => !prev)
   }, [])
 
-  // ===== ALL useCallback DEFINITIONS FIRST (before any useEffect that references them) =====
-
-  const createWalkAnimation = useCallback(() => {
-    const tl = gsap.timeline({ repeat: -1 })
-    if (leftLegRef.current && rightLegRef.current) {
-      tl.to(leftLegRef.current, { rotation: 15, transformOrigin: '50% 0%', duration: 0.2, ease: 'sine.inOut' }, 0)
-      tl.to(rightLegRef.current, { rotation: -15, transformOrigin: '50% 0%', duration: 0.2, ease: 'sine.inOut' }, 0)
-      tl.to(leftLegRef.current, { rotation: -15, duration: 0.2, ease: 'sine.inOut' }, 0.2)
-      tl.to(rightLegRef.current, { rotation: 15, duration: 0.2, ease: 'sine.inOut' }, 0.2)
-    }
-    return tl
-  }, [])
-
-  const stopWalking = useCallback(() => {
-    if (walkTimelineRef.current) {
-      walkTimelineRef.current.kill()
-      walkTimelineRef.current = null
-    }
-    if (leftLegRef.current) gsap.to(leftLegRef.current, { rotation: 0, duration: 0.15 })
-    if (rightLegRef.current) gsap.to(rightLegRef.current, { rotation: 0, duration: 0.15 })
-  }, [])
-
-  const walkTo = useCallback((targetX: number, targetY: number, onArrive: () => void) => {
-    const outer = outerRef.current
-    if (!outer) { onArrive(); return }
-
-    const currentX = (gsap.getProperty(outer, 'x') as number) || 0
-    const distance = Math.abs(targetX - currentX)
-    const duration = Math.max(1, Math.min(2.5, distance / 200))
-
-    const scaleX = targetX < currentX ? -1 : 1
-    gsap.to(outer, { scaleX, duration: 0.15 })
-
-    stopWalking()
-    walkTimelineRef.current = createWalkAnimation()
-
-    gsap.to(outer, {
-      x: targetX,
-      y: targetY,
-      duration,
-      ease: 'power2.inOut',
-      onComplete: () => {
-        stopWalking()
-        gsap.to(outer, { scaleX: 1, duration: 0.15 })
-        onArrive()
-      },
-    })
-  }, [createWalkAnimation, stopWalking])
-
-  const resetPose = useCallback(() => {
-    const pupils = [leftPupilRef.current, rightPupilRef.current].filter(Boolean)
-    const eyes = [leftEyeRef.current, rightEyeRef.current].filter(Boolean)
-    gsap.to(pupils, { attr: { cy: 52 }, duration: 0.3 })
-    if (leftPupilRef.current) gsap.to(leftPupilRef.current, { attr: { cx: 32 }, duration: 0.3 })
-    if (rightPupilRef.current) gsap.to(rightPupilRef.current, { attr: { cx: 52 }, duration: 0.3 })
-    gsap.to(eyes, { scaleY: 1, attr: { r: 8 }, duration: 0.3, transformOrigin: 'center center' })
-    if (mouthRef.current) gsap.to(mouthRef.current, { attr: { d: 'M 32 68 Q 40 74 48 68' }, duration: 0.3 })
-    if (rightArmRef.current) gsap.to(rightArmRef.current, { rotation: 0, x: 0, y: 0, duration: 0.3 })
-    if (leftArmRef.current) gsap.to(leftArmRef.current, { rotation: 0, x: 0, y: 0, duration: 0.3 })
-    if (thoughtDotsRef.current) gsap.to(thoughtDotsRef.current, { opacity: 0, duration: 0.2 })
-    if (outerRef.current) gsap.to(outerRef.current, { rotation: 0, duration: 0.3 })
-  }, [])
-
-  const startMoodAnimation = useCallback((currentMode: CharacterMode) => {
-    if (modeTimelineRef.current) {
-      modeTimelineRef.current.kill()
-      modeTimelineRef.current = null
-    }
-
-    if (currentMode === 'thinking') {
-      const tl = gsap.timeline({ repeat: -1 })
-      modeTimelineRef.current = tl
-      tl.to([leftPupilRef.current, rightPupilRef.current].filter(Boolean), { attr: { cy: 49, cx: '+=2' }, duration: 0.5, ease: 'power2.out' }, 0)
-      if (mouthRef.current) tl.to(mouthRef.current, { attr: { d: 'M 33 68 Q 40 68 47 68' }, duration: 0.3 }, 0)
-      if (rightArmRef.current) tl.to(rightArmRef.current, { rotation: -45, transformOrigin: '50% 0%', x: -8, y: -5, duration: 0.5, ease: 'power2.out' }, 0)
-      if (thoughtDotsRef.current) {
-        tl.to(thoughtDotsRef.current, { opacity: 1, duration: 0.3 }, 0.3)
-        tl.to(thoughtDotsRef.current.children, { y: -3, duration: 0.6, ease: 'sine.inOut', yoyo: true, repeat: -1, stagger: 0.15 }, 0.5)
-      }
-    }
-
-    if (currentMode === 'tool_executing') {
-      const tl = gsap.timeline({ repeat: -1 })
-      modeTimelineRef.current = tl
-      tl.to([leftEyeRef.current, rightEyeRef.current].filter(Boolean), { scaleY: 0.7, transformOrigin: '50% 50%', duration: 0.3 }, 0)
-      if (leftArmRef.current) tl.to(leftArmRef.current, { rotation: -20, transformOrigin: '50% 0%', duration: 0.4, yoyo: true, repeat: -1, ease: 'sine.inOut' }, 0)
-      if (rightArmRef.current) tl.to(rightArmRef.current, { rotation: 20, transformOrigin: '50% 0%', duration: 0.5, yoyo: true, repeat: -1, ease: 'sine.inOut' }, 0)
-      if (mouthRef.current) tl.to(mouthRef.current, { attr: { d: 'M 34 68 Q 40 66 46 68' }, duration: 0.3 }, 0)
-    }
-
-    if (currentMode === 'streaming') {
-      const tl = gsap.timeline({ repeat: -1 })
-      modeTimelineRef.current = tl
-      tl.to([leftPupilRef.current, rightPupilRef.current].filter(Boolean), { attr: { cy: 55 }, duration: 0.5, ease: 'power2.out' }, 0)
-      if (leftPupilRef.current) tl.to(leftPupilRef.current, { attr: { cx: 32 }, duration: 0.3 }, 0)
-      if (rightPupilRef.current) tl.to(rightPupilRef.current, { attr: { cx: 52 }, duration: 0.3 }, 0)
-      if (mouthRef.current) tl.to(mouthRef.current, { attr: { d: 'M 32 68 Q 40 74 48 68' }, duration: 0.3 }, 0)
-      if (outerRef.current) tl.to(outerRef.current, { rotation: 3, duration: 0.8, ease: 'sine.inOut', yoyo: true, repeat: -1 }, 0)
-    }
-
-    if (currentMode === 'celebrating') {
-      const outer = outerRef.current
-      if (!outer) return
-      const tl = gsap.timeline({ repeat: 2 })
-      modeTimelineRef.current = tl
-      if (mouthRef.current) tl.to(mouthRef.current, { attr: { d: 'M 30 66 Q 40 80 50 66' }, duration: 0.2 }, 0)
-      tl.to([leftEyeRef.current, rightEyeRef.current].filter(Boolean), { scaleY: 0.3, transformOrigin: '50% 50%', duration: 0.2 }, 0)
-      tl.to(outer, { y: '-=30', duration: 0.3, ease: 'power2.out' }, 0)
-      tl.to(outer, { y: '+=30', duration: 0.3, ease: 'bounce.out' }, 0.3)
-      if (leftArmRef.current) {
-        tl.to(leftArmRef.current, { rotation: -60, transformOrigin: '50% 0%', duration: 0.2 }, 0)
-        tl.to(leftArmRef.current, { rotation: -30, duration: 0.15, yoyo: true, repeat: 3 }, 0.2)
-        tl.to(leftArmRef.current, { rotation: 0, duration: 0.2 }, 0.8)
-      }
-      if (rightArmRef.current) {
-        tl.to(rightArmRef.current, { rotation: 60, transformOrigin: '50% 0%', duration: 0.2 }, 0)
-        tl.to(rightArmRef.current, { rotation: 30, duration: 0.15, yoyo: true, repeat: 3 }, 0.2)
-        tl.to(rightArmRef.current, { rotation: 0, duration: 0.2 }, 0.8)
-      }
-    }
-
-    if (currentMode === 'confused') {
-      const outer = outerRef.current
-      if (!outer) return
-      const tl = gsap.timeline({ repeat: 2 })
-      modeTimelineRef.current = tl
-      if (mouthRef.current) tl.to(mouthRef.current, { attr: { d: 'M 32 70 Q 36 66 40 70 Q 44 74 48 70' }, duration: 0.3 }, 0)
-      if (leftEyeRef.current) tl.to(leftEyeRef.current, { attr: { r: 6 }, duration: 0.3 }, 0)
-      if (rightEyeRef.current) tl.to(rightEyeRef.current, { attr: { r: 9 }, duration: 0.3 }, 0)
-      if (rightArmRef.current) {
-        tl.to(rightArmRef.current, { rotation: -70, x: -15, y: -20, transformOrigin: '50% 0%', duration: 0.4 }, 0)
-        tl.to(rightArmRef.current, { rotation: -60, duration: 0.2, yoyo: true, repeat: 3 }, 0.4)
-        tl.to(rightArmRef.current, { rotation: 0, x: 0, y: 0, duration: 0.3 }, 1)
-      }
-      tl.to(outer, { rotation: -8, duration: 0.3, ease: 'power2.out' }, 0)
-      tl.to(outer, { rotation: 0, duration: 0.3 }, 1)
-    }
-  }, [])
-
-  const playDance = useCallback((danceName: string) => {
-    setShowDanceMenu(false)
-    if (danceTimelineRef.current) {
-      danceTimelineRef.current.kill()
-      danceTimelineRef.current = null
-    }
-    resetPose()
-
-    const outer = outerRef.current
-    const bob = bobRef.current
-    if (!outer || !bob) return
-
-    const tl = gsap.timeline({
-      onComplete: () => {
-        danceTimelineRef.current = null
-        resetPose()
-      },
-    })
-    danceTimelineRef.current = tl
-
-    // Happy mouth for all dances
-    if (mouthRef.current) tl.to(mouthRef.current, { attr: { d: 'M 30 66 Q 40 80 50 66' }, duration: 0.15 }, 0)
-    // Happy eyes
-    tl.to([leftEyeRef.current, rightEyeRef.current].filter(Boolean), { scaleY: 0.4, transformOrigin: '50% 50%', duration: 0.15 }, 0)
-
-    if (danceName === 'spin') {
-      tl.to(outer, { rotation: 360, duration: 0.6, ease: 'power2.inOut' }, 0)
-      tl.to(outer, { rotation: 720, duration: 0.6, ease: 'power2.inOut' }, 0.6)
-      tl.set(outer, { rotation: 0 }, 1.2)
-      if (leftArmRef.current) tl.to(leftArmRef.current, { rotation: -80, transformOrigin: '50% 0%', duration: 0.3 }, 0)
-      if (rightArmRef.current) tl.to(rightArmRef.current, { rotation: 80, transformOrigin: '50% 0%', duration: 0.3 }, 0)
-      if (leftArmRef.current) tl.to(leftArmRef.current, { rotation: 0, duration: 0.3 }, 1)
-      if (rightArmRef.current) tl.to(rightArmRef.current, { rotation: 0, duration: 0.3 }, 1)
-    }
-
-    if (danceName === 'flip') {
-      tl.to(bob, { y: -60, duration: 0.3, ease: 'power2.out' }, 0)
-      tl.to(bob, { scaleY: -1, duration: 0.001 }, 0.3)
-      tl.to(bob, { scaleY: 1, duration: 0.001 }, 0.5)
-      tl.to(bob, { y: 0, duration: 0.3, ease: 'bounce.out' }, 0.5)
-      if (leftArmRef.current) tl.to(leftArmRef.current, { rotation: -60, transformOrigin: '50% 0%', duration: 0.15 }, 0)
-      if (rightArmRef.current) tl.to(rightArmRef.current, { rotation: 60, transformOrigin: '50% 0%', duration: 0.15 }, 0)
-      if (leftArmRef.current) tl.to(leftArmRef.current, { rotation: 0, duration: 0.3 }, 0.6)
-      if (rightArmRef.current) tl.to(rightArmRef.current, { rotation: 0, duration: 0.3 }, 0.6)
-    }
-
-    if (danceName === 'wave') {
-      const armRepeat = { yoyo: true, repeat: 5, ease: 'sine.inOut' }
-      if (rightArmRef.current) tl.to(rightArmRef.current, { rotation: 70, transformOrigin: '50% 0%', duration: 0.2, ...armRepeat }, 0)
-      if (leftArmRef.current) tl.to(leftArmRef.current, { rotation: -70, transformOrigin: '50% 0%', duration: 0.25, ...armRepeat }, 0.1)
-      tl.to(bob, { y: -6, duration: 0.2, yoyo: true, repeat: 5, ease: 'sine.inOut' }, 0)
-      if (leftLegRef.current) tl.to(leftLegRef.current, { rotation: 10, transformOrigin: '50% 0%', duration: 0.2, yoyo: true, repeat: 5 }, 0)
-      if (rightLegRef.current) tl.to(rightLegRef.current, { rotation: -10, transformOrigin: '50% 0%', duration: 0.2, yoyo: true, repeat: 5 }, 0.1)
-    }
-
-    if (danceName === 'moonwalk') {
-      tl.to(outer, { scaleX: -1, duration: 0.1 }, 0)
-      if (leftLegRef.current) tl.to(leftLegRef.current, { rotation: 20, transformOrigin: '50% 0%', duration: 0.3, yoyo: true, repeat: 5, ease: 'sine.inOut' }, 0.1)
-      if (rightLegRef.current) tl.to(rightLegRef.current, { rotation: -20, transformOrigin: '50% 0%', duration: 0.3, yoyo: true, repeat: 5, ease: 'sine.inOut' }, 0.25)
-      tl.to(outer, { x: `+=${80}`, duration: 2, ease: 'linear' }, 0.1)
-      tl.to(bob, { y: -3, duration: 0.15, yoyo: true, repeat: 9 }, 0.1)
-      tl.to(outer, { scaleX: 1, duration: 0.1 }, 2.2)
-    }
-
-    if (danceName === 'headbang') {
-      tl.to(bob, { rotation: 15, duration: 0.12, yoyo: true, repeat: 11, ease: 'power2.in', transformOrigin: '50% 100%' }, 0)
-      if (antennaRef.current) tl.to(antennaRef.current, { attr: { cx: '+=8' }, duration: 0.1, yoyo: true, repeat: 11, ease: 'sine.inOut' }, 0)
-      if (leftArmRef.current) tl.to(leftArmRef.current, { rotation: -40, transformOrigin: '50% 0%', duration: 0.12, yoyo: true, repeat: 11 }, 0)
-      if (rightArmRef.current) tl.to(rightArmRef.current, { rotation: 40, transformOrigin: '50% 0%', duration: 0.12, yoyo: true, repeat: 11 }, 0)
-    }
-
-    if (danceName === 'disco') {
-      // Alternate pointing arms + leg kicks
-      if (rightArmRef.current) {
-        tl.to(rightArmRef.current, { rotation: -70, x: -10, y: -15, transformOrigin: '50% 0%', duration: 0.25 }, 0)
-        tl.to(rightArmRef.current, { rotation: 70, x: 10, y: -15, duration: 0.25 }, 0.5)
-        tl.to(rightArmRef.current, { rotation: -70, x: -10, y: -15, duration: 0.25 }, 1.0)
-        tl.to(rightArmRef.current, { rotation: 70, x: 10, y: -15, duration: 0.25 }, 1.5)
-        tl.to(rightArmRef.current, { rotation: 0, x: 0, y: 0, duration: 0.2 }, 2.0)
-      }
-      if (leftArmRef.current) {
-        tl.to(leftArmRef.current, { rotation: 70, x: 10, y: -15, transformOrigin: '50% 0%', duration: 0.25 }, 0.25)
-        tl.to(leftArmRef.current, { rotation: -70, x: -10, y: -15, duration: 0.25 }, 0.75)
-        tl.to(leftArmRef.current, { rotation: 70, x: 10, y: -15, duration: 0.25 }, 1.25)
-        tl.to(leftArmRef.current, { rotation: -70, x: -10, y: -15, duration: 0.25 }, 1.75)
-        tl.to(leftArmRef.current, { rotation: 0, x: 0, y: 0, duration: 0.2 }, 2.0)
-      }
-      tl.to(bob, { y: -10, duration: 0.25, yoyo: true, repeat: 7, ease: 'power2.out' }, 0)
-      if (leftLegRef.current) tl.to(leftLegRef.current, { rotation: 25, transformOrigin: '50% 0%', duration: 0.25, yoyo: true, repeat: 7 }, 0)
-      if (rightLegRef.current) tl.to(rightLegRef.current, { rotation: -25, transformOrigin: '50% 0%', duration: 0.25, yoyo: true, repeat: 7 }, 0.125)
-      tl.to(outer, { rotation: 5, duration: 0.25, yoyo: true, repeat: 7, ease: 'sine.inOut' }, 0)
-    }
-  }, [resetPose])
-
-  const handleMouseDown = useCallback((e: React.MouseEvent) => {
-    e.preventDefault()
-    e.stopPropagation()
-    const outer = outerRef.current
-    if (!outer) return
-
-    // Close dance menu if open
-    if (showDanceMenu) {
-      setShowDanceMenu(false)
-      return
-    }
-
-    hasMovedRef.current = false
-    draggingRef.current = true
-    dragStartRef.current = {
-      mouseX: e.clientX,
-      mouseY: e.clientY,
-      elX: (gsap.getProperty(outer, 'x') as number) || 0,
-      elY: (gsap.getProperty(outer, 'y') as number) || 0,
-    }
-
-    gsap.killTweensOf(outer, 'x,y')
-    roamDelayRef.current?.kill()
-    stopWalking()
-
-    if (!selectedRef.current) {
-      setSelected(true)
-    }
-
-    // Start long-press timer (600ms without moving = dance menu)
-    if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current)
-    longPressTimerRef.current = setTimeout(() => {
-      if (!hasMovedRef.current) {
-        draggingRef.current = false
-        setShowDanceMenu(true)
-      }
-    }, 600)
-
-    const handleMouseMove = (ev: MouseEvent) => {
-      if (!draggingRef.current || !outer) return
-      const dx = ev.clientX - dragStartRef.current.mouseX
-      const dy = ev.clientY - dragStartRef.current.mouseY
-      // Mark as moved if dragged more than 5px
-      if (Math.abs(dx) > 5 || Math.abs(dy) > 5) {
-        hasMovedRef.current = true
-        if (longPressTimerRef.current) {
-          clearTimeout(longPressTimerRef.current)
-          longPressTimerRef.current = null
-        }
-      }
-      gsap.set(outer, {
-        x: dragStartRef.current.elX + dx,
-        y: dragStartRef.current.elY + dy,
-      })
-    }
-
-    const handleMouseUp = () => {
-      draggingRef.current = false
-      if (longPressTimerRef.current) {
-        clearTimeout(longPressTimerRef.current)
-        longPressTimerRef.current = null
-      }
-      if (!showDanceMenu) {
-        setSelected(false)
-        resetPose()
-      }
-      document.removeEventListener('mousemove', handleMouseMove)
-      document.removeEventListener('mouseup', handleMouseUp)
-    }
-
-    document.addEventListener('mousemove', handleMouseMove)
-    document.addEventListener('mouseup', handleMouseUp)
-  }, [stopWalking, resetPose, showDanceMenu])
-
-  // ===== ALL useEffect HOOKS BELOW =====
-
-  // Excited animation when selected
-  useEffect(() => {
-    if (selectedTimelineRef.current) {
-      selectedTimelineRef.current.kill()
-      selectedTimelineRef.current = null
-    }
-    if (!selected) return
-
-    roamDelayRef.current?.kill()
-    if (modeTimelineRef.current) {
-      modeTimelineRef.current.kill()
-      modeTimelineRef.current = null
-    }
-    stopWalking()
-
-    const tl = gsap.timeline({ repeat: -1 })
-    selectedTimelineRef.current = tl
-
-    tl.to([leftEyeRef.current, rightEyeRef.current].filter(Boolean), { attr: { r: 10 }, scaleY: 1, transformOrigin: '50% 50%', duration: 0.2 }, 0)
-    tl.to([leftPupilRef.current, rightPupilRef.current].filter(Boolean), { attr: { r: 5 }, duration: 0.2 }, 0)
-    if (mouthRef.current) tl.to(mouthRef.current, { attr: { d: 'M 30 66 Q 40 78 50 66' }, duration: 0.2 }, 0)
-    if (bobRef.current) {
-      tl.to(bobRef.current, { y: -12, duration: 0.3, ease: 'power2.out' }, 0)
-      tl.to(bobRef.current, { y: 0, duration: 0.3, ease: 'bounce.out' }, 0.3)
-    }
-    if (rightArmRef.current) {
-      tl.to(rightArmRef.current, { rotation: 50, transformOrigin: '50% 0%', duration: 0.2 }, 0)
-      tl.to(rightArmRef.current, { rotation: 30, duration: 0.15, yoyo: true, repeat: 3 }, 0.2)
-      tl.to(rightArmRef.current, { rotation: 50, duration: 0.15 }, 0.8)
-    }
-    if (antennaRef.current) {
-      tl.to(antennaRef.current, { attr: { cx: '+=5' }, duration: 0.15, yoyo: true, repeat: 5, ease: 'sine.inOut' }, 0)
-    }
-
-    return () => {
-      if (selectedTimelineRef.current) {
-        selectedTimelineRef.current.kill()
-        selectedTimelineRef.current = null
-      }
-    }
-  }, [selected, stopWalking])
-
-  // Persistent animations: bob, blink, antenna
-  useEffect(() => {
-    const bob = bobRef.current
-    if (!bob) return
-
-    const ctx = gsap.context(() => {
-      gsap.to(bob, { y: -8, duration: 2.5, ease: 'sine.inOut', yoyo: true, repeat: -1 })
-
-      if (antennaRef.current) {
-        gsap.to(antennaRef.current, { attr: { cx: '+=3' }, duration: 1.5, ease: 'sine.inOut', yoyo: true, repeat: -1 })
-      }
-
-      const scheduleBlink = () => {
-        const delay = 3 + Math.random() * 4
-        gsap.delayedCall(delay, () => {
-          const eyes = [leftEyeRef.current, rightEyeRef.current, leftPupilRef.current, rightPupilRef.current].filter(Boolean)
-          if (eyes.length === 0) return
-          gsap.to(eyes, { scaleY: 0.1, duration: 0.1, transformOrigin: 'center center', yoyo: true, repeat: 1, onComplete: scheduleBlink })
-        })
-      }
-      scheduleBlink()
-
-      const handleVisibility = () => {
-        if (document.hidden) gsap.globalTimeline.pause()
-        else gsap.globalTimeline.resume()
-      }
-      document.addEventListener('visibilitychange', handleVisibility)
-      return () => document.removeEventListener('visibilitychange', handleVisibility)
-    }, bob)
-
-    return () => ctx.revert()
-  }, [])
-
-  // Roaming (idle only)
-  useEffect(() => {
-    const outer = outerRef.current
-    if (!outer) return
-
-    const roam = () => {
-      if (modeRef.current !== 'idle' || selectedRef.current || followCursorRef.current) return
-      const container = containerRef.current
-      if (!container) { roamDelayRef.current = gsap.delayedCall(2, roam); return }
-
-      const maxX = Math.max(0, container.offsetWidth - 100)
-      const maxY = Math.max(0, container.offsetHeight - 120)
-      const targetX = 20 + Math.random() * (maxX - 20)
-      const targetY = 20 + Math.random() * (maxY - 20)
-
-      walkTo(targetX, targetY, () => {
-        if (modeRef.current === 'idle' && !selectedRef.current) {
-          roamDelayRef.current = gsap.delayedCall(3 + Math.random() * 3, roam)
-        }
-      })
-    }
-
-    roamDelayRef.current = gsap.delayedCall(2, roam)
-    return () => { roamDelayRef.current?.kill() }
-  }, [containerRef, walkTo])
-
-  // Mode-change handler: walk first, then animate
-  useEffect(() => {
-    if (selectedRef.current || followCursorRef.current) return
-
-    if (modeTimelineRef.current) {
-      modeTimelineRef.current.kill()
-      modeTimelineRef.current = null
-    }
-    roamDelayRef.current?.kill()
-
-    const container = containerRef.current
-    if (!container) return
-
-    if (mode === 'idle') {
-      resetPose()
-      const roam = () => {
-        if (modeRef.current !== 'idle' || selectedRef.current || followCursorRef.current) return
-        const maxX = Math.max(0, container.offsetWidth - 100)
-        const maxY = Math.max(0, container.offsetHeight - 120)
-        const targetX = 20 + Math.random() * (maxX - 20)
-        const targetY = 20 + Math.random() * (maxY - 20)
-        walkTo(targetX, targetY, () => {
-          if (modeRef.current === 'idle' && !selectedRef.current) {
-            roamDelayRef.current = gsap.delayedCall(3 + Math.random() * 3, roam)
-          }
-        })
-      }
-      roamDelayRef.current = gsap.delayedCall(1, roam)
-      return
-    }
-
-    const bounds = container.getBoundingClientRect()
-    const targetX = bounds.width / 2 - 40
-    const targetY = bounds.height - 140
-
-    if (mode === 'celebrating' || mode === 'confused') {
-      startMoodAnimation(mode)
-      return
-    }
-
-    walkTo(targetX, targetY, () => {
-      startMoodAnimation(mode)
-    })
-  }, [mode, containerRef, walkTo, resetPose, startMoodAnimation])
-
-  // Follow cursor mode
-  useEffect(() => {
-    const container = containerRef.current
-    const outer = outerRef.current
-    if (!container || !outer) return
-
-    if (!followCursor) {
-      // Stop following
-      if (followRafRef.current) {
-        cancelAnimationFrame(followRafRef.current)
-        followRafRef.current = null
-      }
-      stopWalking()
-      return
-    }
-
-    // Kill any existing roaming/mode animations
-    roamDelayRef.current?.kill()
-    gsap.killTweensOf(outer, 'x,y')
-    if (modeTimelineRef.current) {
-      modeTimelineRef.current.kill()
-      modeTimelineRef.current = null
-    }
-
-    // Initialize mouse position to character's current position (avoid jump to 0,0)
-    mousePositionRef.current = {
-      x: (gsap.getProperty(outer, 'x') as number) || 0,
-      y: (gsap.getProperty(outer, 'y') as number) || 0,
-    }
-
-    // Track mouse position relative to container
-    const handleMouseMove = (e: MouseEvent) => {
-      const rect = container.getBoundingClientRect()
-      mousePositionRef.current = {
-        x: e.clientX - rect.left - 40, // center character (80px wide / 2)
-        y: e.clientY - rect.top - 50,  // center vertically
-      }
-    }
-    document.addEventListener('mousemove', handleMouseMove)
-
-    // Start walk animation
-    walkTimelineRef.current = createWalkAnimation()
-
-    // Smoothly follow cursor using GSAP
-    let isWalking = false
-    const follow = () => {
-      if (!followCursorRef.current || !outer) return
-
-      const currentX = (gsap.getProperty(outer, 'x') as number) || 0
-      const currentY = (gsap.getProperty(outer, 'y') as number) || 0
-      const targetX = mousePositionRef.current.x
-      const targetY = mousePositionRef.current.y
-      const dx = targetX - currentX
-      const dy = targetY - currentY
-      const dist = Math.sqrt(dx * dx + dy * dy)
-
-      if (dist > 15) {
-        // Face direction of movement
-        const scaleX = dx < 0 ? -1 : 1
-        gsap.set(outer, { scaleX })
-
-        // Smooth follow with easing
-        gsap.to(outer, {
-          x: currentX + dx * 0.08,
-          y: currentY + dy * 0.08,
-          duration: 0.05,
-          overwrite: 'auto',
-        })
-
-        if (!isWalking) {
-          isWalking = true
-          stopWalking()
-          walkTimelineRef.current = createWalkAnimation()
-        }
-
-        // Happy face while following
-        if (mouthRef.current) gsap.set(mouthRef.current, { attr: { d: 'M 30 66 Q 40 78 50 66' } })
-        const eyes = [leftEyeRef.current, rightEyeRef.current].filter(Boolean)
-        gsap.set(eyes, { attr: { r: 9 }, scaleY: 1, transformOrigin: '50% 50%' })
-      } else {
-        if (isWalking) {
-          isWalking = false
-          stopWalking()
-        }
-      }
-
-      followRafRef.current = requestAnimationFrame(follow)
-    }
-
-    followRafRef.current = requestAnimationFrame(follow)
-
-    return () => {
-      document.removeEventListener('mousemove', handleMouseMove)
-      if (followRafRef.current) {
-        cancelAnimationFrame(followRafRef.current)
-        followRafRef.current = null
-      }
-      stopWalking()
-      gsap.to(outer, { scaleX: 1, duration: 0.15 })
-      resetPose()
-    }
-  }, [followCursor, containerRef, createWalkAnimation, stopWalking, resetPose])
-
+  // ===== Render =====
   return (
     <div
       ref={outerRef}
