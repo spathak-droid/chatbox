@@ -16,7 +16,7 @@ import {
   TextInput,
   Title,
 } from '@mantine/core'
-import { IconMessage, IconPlus, IconSend, IconTrash, IconX } from '@tabler/icons-react'
+import { IconMenu2, IconMessage, IconPlus, IconSend, IconTrash, IconX } from '@tabler/icons-react'
 import { AppIframe } from '@/components/app-blocks/AppIframe'
 import { useAppStore } from '@/stores/appStore'
 import confetti from 'canvas-confetti'
@@ -28,7 +28,7 @@ const APP_PREFIX_MAP: Record<string, string> = {
   calendar_: (import.meta.env.VITE_CALENDAR_APP_URL as string) || 'http://localhost:3002/app',
   chess_: (import.meta.env.VITE_CHESS_APP_URL as string) || 'http://localhost:3003/app',
   flashcards_: (import.meta.env.VITE_FLASHCARDS_APP_URL as string) || 'http://localhost:3004/app',
-  mario_: (import.meta.env.VITE_MARIO_APP_URL as string) || 'http://localhost:3005/app',
+  whiteboard_: (import.meta.env.VITE_WHITEBOARD_EMBED_URL as string) || 'https://excalidraw.com',
 }
 
 function getAppIframeUrl(toolName: string): string | null {
@@ -43,7 +43,7 @@ const APP_ID_MAP: Record<string, string> = {
   calendar_: 'google-calendar',
   chess_: 'chess',
   flashcards_: 'flashcards',
-  mario_: 'mario',
+  whiteboard_: 'whiteboard',
 }
 
 function getAppIdFromToolName(toolName: string): string | null {
@@ -105,6 +105,7 @@ export function ChatBridgeChat({ token, user, onLogout }: ChatBridgeChatProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
+  const [sidebarOpen, setSidebarOpen] = useState(true)
   const [conversationId, setConversationId] = useState<string | null>(null)
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [loadingConversations, setLoadingConversations] = useState(false)
@@ -493,6 +494,15 @@ export function ChatBridgeChat({ token, user, onLogout }: ChatBridgeChatProps) {
     setSecondaryPanel(null)
   }, [messages])
 
+  // Auto-collapse sidebar when an app panel opens, re-open when all panels close
+  useEffect(() => {
+    if (activePanel || secondaryPanel) {
+      setSidebarOpen(false)
+    } else {
+      setSidebarOpen(true)
+    }
+  }, [activePanel, secondaryPanel])
+
   const handleToolRequest = useCallback(
     (request: { tool: string; args: Record<string, unknown> }) => {
       // Send tool request as a chat message directly
@@ -649,27 +659,46 @@ export function ChatBridgeChat({ token, user, onLogout }: ChatBridgeChatProps) {
         setSecondaryPanel(null)
       }
 
-      // 2. Use latest tracked state for farewell
-      const appState = latestAppStateRef.current
-      latestAppStateRef.current = {}
+      // 2. Show instant close note
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `close-${Date.now()}`,
+          role: 'assistant',
+          content: `\u{1F4CB} ${appLabel} closed.`,
+        },
+      ])
 
-      // 3. Request LLM farewell if we have state, otherwise just show close note
-      const stateKeys = Object.keys(appState)
-      if (stateKeys.length > 0 && conversationId) {
-        const stateSummary = JSON.stringify(appState, null, 0)
-        sendMessage(`[The user closed the ${panel.appId} app. Here is the final game state: ${stateSummary}. Please give a brief, encouraging summary of how they did and ask if they want to play again or do something else.]`)
-      } else {
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: `close-${Date.now()}`,
-            role: 'assistant',
-            content: `\u{1F4CB} ${appLabel} closed.`,
-          },
-        ])
+      // 3. Fire async LLM farewell via /close-app endpoint (no visible user message)
+      // Use latestAppStateRef if available (richer state from live updates), fall back to panel's sessionState
+      const trackedState = latestAppStateRef.current
+      const appState = Object.keys(trackedState).length > 0 ? trackedState : panel.sessionState
+      latestAppStateRef.current = {}
+      if (conversationId) {
+        console.log('[closeApp] Requesting farewell for', panel.appId, 'state keys:', Object.keys(appState))
+        fetch(`${API_BASE}/chat/conversations/${conversationId}/close-app`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ appId: panel.appId, appState }),
+        })
+          .then((r) => r.json())
+          .then((data) => {
+            console.log('[closeApp] Response:', data)
+            if (data.farewell) {
+              setMessages((prev) => [
+                ...prev,
+                {
+                  id: `farewell-${Date.now()}`,
+                  role: 'assistant',
+                  content: data.farewell,
+                },
+              ])
+            }
+          })
+          .catch((err) => console.error('[closeApp] Request failed:', err))
       }
     },
-    [activePanel, secondaryPanel, conversationId, sendMessage]
+    [activePanel, secondaryPanel, conversationId, token]
   )
 
   const handleGameOver = useCallback(
@@ -692,19 +721,26 @@ export function ChatBridgeChat({ token, user, onLogout }: ChatBridgeChatProps) {
       {/* Sidebar */}
       <Box
         style={{
-          width: 280,
-          minWidth: 280,
+          width: sidebarOpen ? 280 : 0,
+          minWidth: sidebarOpen ? 280 : 0,
           background: 'var(--mantine-color-dark-8)',
-          borderRight: '1px solid var(--mantine-color-dark-5)',
+          borderRight: sidebarOpen ? '1px solid var(--mantine-color-dark-5)' : 'none',
           display: 'flex',
           flexDirection: 'column',
           height: '100vh',
+          overflow: 'hidden',
+          transition: 'width 0.2s ease, min-width 0.2s ease',
         }}
       >
         <Stack gap="xs" p="md" style={{ flex: '0 0 auto' }}>
-          <Title order={4} c="white">
-            TutorMeAI
-          </Title>
+          <Group justify="space-between">
+            <Title order={4} c="white">
+              TutorMeAI
+            </Title>
+            <ActionIcon size="sm" variant="subtle" color="gray" onClick={() => setSidebarOpen(false)}>
+              <IconX size={16} />
+            </ActionIcon>
+          </Group>
           <Button
             leftSection={<IconPlus size={16} />}
             variant="light"
@@ -768,6 +804,14 @@ export function ChatBridgeChat({ token, user, onLogout }: ChatBridgeChatProps) {
 
       {/* Chat area */}
       <Flex direction="column" style={{ flex: 1, minWidth: 0, height: '100vh', background: 'var(--mantine-color-dark-7)' }}>
+        {/* Hamburger to toggle sidebar */}
+        {!sidebarOpen && (
+          <Box px="sm" pt="sm" style={{ flex: '0 0 auto' }}>
+            <ActionIcon size="sm" variant="subtle" color="gray" onClick={() => setSidebarOpen(true)}>
+              <IconMenu2 size={18} />
+            </ActionIcon>
+          </Box>
+        )}
         {/* Messages */}
         <ScrollArea style={{ flex: 1 }} viewportRef={viewportRef} p="md">
           <Stack gap="md" maw={600} mx="auto" pb="xl">
@@ -777,7 +821,7 @@ export function ChatBridgeChat({ token, user, onLogout }: ChatBridgeChatProps) {
                   Start a conversation
                 </Title>
                 <Text size="sm" c="dimmed" ta="center" maw={400}>
-                  Ask me anything! Try &quot;let&apos;s play Mario&quot;, &quot;let&apos;s play chess&quot;, or &quot;help me study with flashcards&quot;
+                  Ask me anything! Try &quot;let&apos;s play chess&quot;, &quot;help me study with flashcards&quot;, or &quot;open the whiteboard&quot;
                   to launch interactive apps.
                 </Text>
               </Stack>
@@ -799,13 +843,13 @@ export function ChatBridgeChat({ token, user, onLogout }: ChatBridgeChatProps) {
         </ScrollArea>
 
         {/* Suggestion buttons */}
-        <Group gap="xs" px="md" pb={4} pt="xs" className="max-w-4xl mx-auto" style={{ flex: '0 0 auto' }}>
+        <Group gap="xs" px="md" pb={4} pt="xs" wrap="wrap" className="max-w-4xl mx-auto" style={{ flex: '0 0 auto' }}>
           {[
             { label: 'Play Chess', icon: '\u265E', msg: "Let's play chess" },
-            { label: 'Play Mario', icon: '\uD83C\uDF44', msg: "Let's play Mario" },
             { label: 'Practice Math', icon: '\u2795', msg: "Let's practice math" },
             { label: 'Flashcards', icon: '\uD83D\uDCDD', msg: "Let's study with flashcards" },
             { label: 'Calendar', icon: '\uD83D\uDCC5', msg: "Open my calendar" },
+            { label: 'Whiteboard', icon: '\uD83C\uDFA8', msg: "Open the whiteboard" },
           ].map((s) => (
             <Button
               key={s.label}
@@ -932,8 +976,8 @@ export function ChatBridgeChat({ token, user, onLogout }: ChatBridgeChatProps) {
       {(activePanel || secondaryPanel) && (
         <Box
           style={{
-            width: 440,
-            minWidth: 440,
+            width: 600,
+            minWidth: 600,
             height: '100vh',
             borderLeft: '1px solid var(--mantine-color-dark-5)',
             background: 'var(--mantine-color-dark-8)',
