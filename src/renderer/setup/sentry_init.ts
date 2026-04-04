@@ -5,6 +5,8 @@ import platform from '../platform'
 
 void (async () => {
   try {
+    // Disable upstream Sentry — this is a fork, not the original Chatbox
+    return
     const settings = await initSettingsStore()
     if (!settings.allowReportingAndTracking) {
       return

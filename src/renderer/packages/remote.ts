@@ -122,21 +122,9 @@ const getChatboxHeaders = async () => {
 
 // ========== 各个接口方法 ==========
 
-export async function checkNeedUpdate(version: string, os: string, config: Config, settings: Settings) {
-  type Response = {
-    need_update?: boolean
-  }
-  // const res = await ofetch<Response>(`${RELEASE_ORIGIN}/chatbox_need_update/${version}`, {
-  const res = await ofetch<Response>(`${getAPIOrigin()}/chatbox_need_update/${version}`, {
-    method: 'POST',
-    retry: 3,
-    body: {
-      uuid: config.uuid,
-      os: os,
-      allowReportingAndTracking: settings.allowReportingAndTracking ? 1 : 0,
-    },
-  })
-  return !!res.need_update
+export async function checkNeedUpdate(_version: string, _os: string, _config: Config, _settings: Settings) {
+  // Stubbed out — upstream Chatbox API is not available for our fork
+  return false
 }
 
 // export async function getSponsorAd(): Promise<null | SponsorAd> {
@@ -229,15 +217,9 @@ export async function getPremiumPrice() {
   return res.data
 }
 
-export async function getRemoteConfig(config: keyof RemoteConfig) {
-  type Response = {
-    data: Pick<RemoteConfig, typeof config>
-  }
-  const res = await ofetch<Response>(`${getAPIOrigin()}/api/remote_config/${config}`, {
-    retry: 3,
-    headers: await getChatboxHeaders(),
-  })
-  return res['data']
+export async function getRemoteConfig(_config: keyof RemoteConfig) {
+  // Stubbed out — upstream Chatbox API is not available for our fork
+  return {} as Pick<RemoteConfig, typeof _config>
 }
 
 export interface DialogConfig {
@@ -245,17 +227,9 @@ export interface DialogConfig {
   buttons: { label: string; url: string }[]
 }
 
-export async function getDialogConfig(params: { uuid: string; language: string; version: string }) {
-  type Response = {
-    data: null | DialogConfig
-  }
-  const res = await ofetch<Response>(`${getAPIOrigin()}/api/dialog_config`, {
-    method: 'POST',
-    retry: 3,
-    body: params,
-    headers: await getChatboxHeaders(),
-  })
-  return res['data'] || null
+export async function getDialogConfig(_params: { uuid: string; language: string; version: string }) {
+  // Stubbed out — upstream Chatbox API is not available for our fork
+  return null
 }
 
 export async function getLicenseDetail(params: { licenseKey: string }) {
