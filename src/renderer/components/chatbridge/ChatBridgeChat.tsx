@@ -405,6 +405,19 @@ export function ChatBridgeChat({ token, user, onLogout }: ChatBridgeChatProps) {
 
                   scrollToBottom()
                 }
+
+                // Trigger refresh on active panel when a tool result modifies its app's data
+                if (appId && event.result && event.result.status !== 'error') {
+                  const resultState = event.result.data || event.result.state || {}
+                  setTimeout(() => {
+                    setActivePanel((prev) => {
+                      if (prev && prev.appId === appId) {
+                        return { ...prev, sessionState: { ...prev.sessionState, ...resultState, _refreshTrigger: Date.now() } }
+                      }
+                      return prev
+                    })
+                  }, 300)
+                }
                 break
               }
               case 'pending_confirmation': {
