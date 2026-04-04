@@ -835,7 +835,7 @@ export function ChatBridgeChat({ token, user, onLogout }: ChatBridgeChatProps) {
       </Box>
 
       {/* Chat area */}
-      <Flex direction="column" style={{ flex: 1, minWidth: 0, height: '100vh', background: 'var(--mantine-color-dark-7)' }}>
+      <Flex ref={chatContainerRef} direction="column" style={{ flex: 1, minWidth: 0, height: '100vh', background: 'var(--mantine-color-dark-7)', position: 'relative' }}>
         {/* Hamburger to toggle sidebar */}
         {!sidebarOpen && (
           <Box px="sm" pt="sm" style={{ flex: '0 0 auto' }}>
@@ -846,7 +846,6 @@ export function ChatBridgeChat({ token, user, onLogout }: ChatBridgeChatProps) {
         )}
         {/* Messages */}
         <ScrollArea style={{ flex: 1 }} viewportRef={viewportRef} p="md">
-          <div ref={chatContainerRef} style={{ position: 'relative', minHeight: '100%' }}>
             <Stack gap="md" maw={600} mx="auto" pb="xl">
               {messages.length === 0 && (
                 <Stack align="center" justify="center" py="xl" gap="md">
@@ -863,19 +862,9 @@ export function ChatBridgeChat({ token, user, onLogout }: ChatBridgeChatProps) {
               {messages.map((msg) => (
                 <MessageBubble key={msg.id} message={msg} onToolRequest={handleToolRequest} />
               ))}
-
-              {loading && (
-                <Flex gap="xs" align="center" px="md">
-                  <Loader size="xs" />
-                  <Text size="sm" c="dimmed">
-                    Thinking...
-                  </Text>
-                </Flex>
-              )}
             </Stack>
-            <ThinkingCharacter mode={characterMode} containerRef={chatContainerRef} />
-          </div>
         </ScrollArea>
+        <ThinkingCharacter mode={characterMode} containerRef={chatContainerRef} />
 
         {/* Suggestion buttons */}
         <Group gap="xs" px="md" pb={4} pt="xs" wrap="wrap" className="max-w-4xl mx-auto" style={{ flex: '0 0 auto' }}>
@@ -1135,7 +1124,14 @@ function MessageBubble({
       >
         🎓
       </Avatar>
-      <Box style={{ flex: 1, wordBreak: 'break-word' }}>
+      <Box
+        className="rounded-2xl px-4 py-2"
+        style={{
+          flex: 1,
+          wordBreak: 'break-word',
+          background: 'var(--chatbox-background-secondary, var(--mantine-color-dark-6))',
+        }}
+      >
         {isThinking ? (
           <Flex gap={6} align="center" py={4}>
             <Box className="thinking-dot" style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--chatbox-tint-brand, #228be6)', animation: 'thinking-bounce 1.4s ease-in-out infinite', animationDelay: '0s' }} />
