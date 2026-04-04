@@ -622,9 +622,16 @@ export function ChatBridgeChat({ token, user, onLogout }: ChatBridgeChatProps) {
     }
 
     // Trigger sidebar iframe refresh so user doesn't have to click Refresh manually
-    setActivePanel((prev) =>
-      prev ? { ...prev, sessionState: { ...prev.sessionState, _refreshTrigger: Date.now() } } : prev
-    )
+    // Small delay to ensure server-side changes are committed
+    setTimeout(() => {
+      const trigger = Date.now()
+      setActivePanel((prev) =>
+        prev ? { ...prev, sessionState: { ...prev.sessionState, _refreshTrigger: trigger } } : prev
+      )
+      setSecondaryPanel((prev) =>
+        prev ? { ...prev, sessionState: { ...prev.sessionState, _refreshTrigger: trigger } } : prev
+      )
+    }, 500)
     setIsConfirming(false)
   }, [conversationId, token, pendingActions])
 
