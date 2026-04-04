@@ -42,9 +42,17 @@ export function sanitizeStateForLLM(appId: string, state: Record<string, unknown
     }
     case 'flashcards': {
       const parts: string[] = []
-      if (clean.cardsTotal) parts.push(`Total cards: ${clean.cardsTotal}`)
-      if (clean.cardsReviewed !== undefined) parts.push(`Reviewed: ${clean.cardsReviewed}`)
       if (clean.topic) parts.push(`Topic: ${clean.topic}`)
+      if (Array.isArray(clean.cards)) parts.push(`Total cards: ${clean.cards.length}`)
+      if (clean.known !== undefined) parts.push(`Known: ${clean.known}`)
+      if (clean.unknown !== undefined) parts.push(`Unknown: ${clean.unknown}`)
+      if (clean.currentIndex !== undefined && Array.isArray(clean.cards)) {
+        parts.push(`Reviewed: ${clean.currentIndex}/${clean.cards.length}`)
+      }
+      if (clean.finished) parts.push('Deck complete')
+      if (Array.isArray(clean.unknownCards) && clean.unknownCards.length > 0) {
+        parts.push(`Cards to review: ${clean.unknownCards.map((c: any) => c.front).join(', ')}`)
+      }
       return parts.length > 0 ? parts.join('. ') : 'Flashcard session in progress.'
     }
     case 'google-calendar': {

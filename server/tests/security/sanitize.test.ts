@@ -99,12 +99,24 @@ describe('sanitizeStateForLLM', () => {
     expect(result).toContain('Problems attempted: 10')
   })
 
-  it('formats flashcards state', () => {
-    const state = { cardsTotal: 20, cardsReviewed: 12, topic: 'Science' }
+  it('formats flashcards state with actual keys from app', () => {
+    const state = {
+      topic: 'Science',
+      cards: [{ front: 'Q1', back: 'A1' }, { front: 'Q2', back: 'A2' }, { front: 'Q3', back: 'A3' }],
+      known: 2,
+      unknown: 1,
+      currentIndex: 3,
+      finished: true,
+      unknownCards: [{ front: 'Q2', back: 'A2' }],
+    }
     const result = sanitizeStateForLLM('flashcards', state)
-    expect(result).toContain('Total cards: 20')
-    expect(result).toContain('Reviewed: 12')
     expect(result).toContain('Topic: Science')
+    expect(result).toContain('Total cards: 3')
+    expect(result).toContain('Known: 2')
+    expect(result).toContain('Unknown: 1')
+    expect(result).toContain('Reviewed: 3/3')
+    expect(result).toContain('Deck complete')
+    expect(result).toContain('Cards to review: Q2')
   })
 
   it('formats calendar state without leaking event details', () => {
