@@ -32,10 +32,21 @@ export function ThinkingCharacter({ mode, containerRef }: ThinkingCharacterProps
   const selectedRef = useRef(false)
   const draggingRef = useRef(false)
   const dragStartRef = useRef({ mouseX: 0, mouseY: 0, elX: 0, elY: 0 })
+  const [followCursor, setFollowCursor] = useState(false)
+  const followCursorRef = useRef(false)
+  const mousePositionRef = useRef({ x: 0, y: 0 })
+  const followRafRef = useRef<number | null>(null)
 
   // Sync refs
   useEffect(() => { modeRef.current = mode }, [mode])
   useEffect(() => { selectedRef.current = selected }, [selected])
+  useEffect(() => { followCursorRef.current = followCursor }, [followCursor])
+
+  const handleDoubleClick = useCallback((e: React.MouseEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setFollowCursor(prev => !prev)
+  }, [])
 
   // ===== ALL useCallback DEFINITIONS FIRST (before any useEffect that references them) =====
 
@@ -303,7 +314,7 @@ export function ThinkingCharacter({ mode, containerRef }: ThinkingCharacterProps
     if (!outer) return
 
     const roam = () => {
-      if (modeRef.current !== 'idle' || selectedRef.current) return
+      if (modeRef.current !== 'idle' || selectedRef.current || followCursorRef.current) return
       const container = containerRef.current
       if (!container) { roamDelayRef.current = gsap.delayedCall(2, roam); return }
 
@@ -325,7 +336,7 @@ export function ThinkingCharacter({ mode, containerRef }: ThinkingCharacterProps
 
   // Mode-change handler: walk first, then animate
   useEffect(() => {
-    if (selectedRef.current) return
+    if (selectedRef.current || followCursorRef.current) return
 
     if (modeTimelineRef.current) {
       modeTimelineRef.current.kill()
@@ -339,7 +350,7 @@ export function ThinkingCharacter({ mode, containerRef }: ThinkingCharacterProps
     if (mode === 'idle') {
       resetPose()
       const roam = () => {
-        if (modeRef.current !== 'idle' || selectedRef.current) return
+        if (modeRef.current !== 'idle' || selectedRef.current || followCursorRef.current) return
         const maxX = Math.max(0, container.offsetWidth - 100)
         const maxY = Math.max(0, container.offsetHeight - 120)
         const targetX = 20 + Math.random() * (maxX - 20)
@@ -368,10 +379,114 @@ export function ThinkingCharacter({ mode, containerRef }: ThinkingCharacterProps
     })
   }, [mode, containerRef, walkTo, resetPose, startMoodAnimation])
 
+  // Follow cursor mode
+  useEffect(() => {
+    const container = containerRef.current
+    const outer = outerRef.current
+    if (!container || !outer) return
+
+    if (!followCursor) {
+      // Stop following
+      if (followRafRef.current) {
+        cancelAnimationFrame(followRafRef.current)
+        followRafRef.current = null
+      }
+      stopWalking()
+      return
+    }
+
+    // Kill any existing roaming/mode animations
+    roamDelayRef.current?.kill()
+    gsap.killTweensOf(outer, 'x,y')
+    if (modeTimelineRef.current) {
+      modeTimelineRef.current.kill()
+      modeTimelineRef.current = null
+    }
+
+    // Initialize mouse position to character's current position (avoid jump to 0,0)
+    mousePositionRef.current = {
+      x: (gsap.getProperty(outer, 'x') as number) || 0,
+      y: (gsap.getProperty(outer, 'y') as number) || 0,
+    }
+
+    // Track mouse position relative to container
+    const handleMouseMove = (e: MouseEvent) => {
+      const rect = container.getBoundingClientRect()
+      mousePositionRef.current = {
+        x: e.clientX - rect.left - 40, // center character (80px wide / 2)
+        y: e.clientY - rect.top - 50,  // center vertically
+      }
+    }
+    document.addEventListener('mousemove', handleMouseMove)
+
+    // Start walk animation
+    walkTimelineRef.current = createWalkAnimation()
+
+    // Smoothly follow cursor using GSAP
+    let isWalking = false
+    const follow = () => {
+      if (!followCursorRef.current || !outer) return
+
+      const currentX = (gsap.getProperty(outer, 'x') as number) || 0
+      const currentY = (gsap.getProperty(outer, 'y') as number) || 0
+      const targetX = mousePositionRef.current.x
+      const targetY = mousePositionRef.current.y
+      const dx = targetX - currentX
+      const dy = targetY - currentY
+      const dist = Math.sqrt(dx * dx + dy * dy)
+
+      if (dist > 15) {
+        // Face direction of movement
+        const scaleX = dx < 0 ? -1 : 1
+        gsap.set(outer, { scaleX })
+
+        // Smooth follow with easing
+        gsap.to(outer, {
+          x: currentX + dx * 0.08,
+          y: currentY + dy * 0.08,
+          duration: 0.05,
+          overwrite: 'auto',
+        })
+
+        if (!isWalking) {
+          isWalking = true
+          stopWalking()
+          walkTimelineRef.current = createWalkAnimation()
+        }
+
+        // Happy face while following
+        if (mouthRef.current) gsap.set(mouthRef.current, { attr: { d: 'M 30 66 Q 40 78 50 66' } })
+        const eyes = [leftEyeRef.current, rightEyeRef.current].filter(Boolean)
+        gsap.set(eyes, { attr: { r: 9 }, scaleY: 1, transformOrigin: '50% 50%' })
+      } else {
+        if (isWalking) {
+          isWalking = false
+          stopWalking()
+        }
+      }
+
+      followRafRef.current = requestAnimationFrame(follow)
+    }
+
+    followRafRef.current = requestAnimationFrame(follow)
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove)
+      if (followRafRef.current) {
+        cancelAnimationFrame(followRafRef.current)
+        followRafRef.current = null
+      }
+      stopWalking()
+      gsap.to(outer, { scaleX: 1, duration: 0.15 })
+      resetPose()
+    }
+  }, [followCursor, containerRef, createWalkAnimation, stopWalking, resetPose])
+
   return (
     <div
       ref={outerRef}
-      onMouseDown={handleMouseDown}
+      onMouseDown={followCursor ? undefined : handleMouseDown}
+      onDoubleClick={handleDoubleClick}
       style={{
         position: 'absolute',
         top: 0,
@@ -379,10 +494,10 @@ export function ThinkingCharacter({ mode, containerRef }: ThinkingCharacterProps
         pointerEvents: 'auto',
         zIndex: 10,
         willChange: 'transform',
-        opacity: selected ? 1 : mode === 'idle' ? 0.5 : 1,
-        transition: 'opacity 0.3s ease',
-        cursor: selected ? 'grab' : 'pointer',
-        filter: selected ? 'drop-shadow(0 0 8px rgba(34, 139, 230, 0.8))' : 'none',
+        opacity: selected || followCursor ? 1 : mode === 'idle' ? 0.5 : 1,
+        transition: 'opacity 0.3s ease, filter 0.3s ease',
+        cursor: followCursor ? 'none' : selected ? 'grab' : 'pointer',
+        filter: followCursor ? 'drop-shadow(0 0 12px rgba(34, 230, 130, 0.8))' : selected ? 'drop-shadow(0 0 8px rgba(34, 139, 230, 0.8))' : 'none',
       }}
     >
       <div ref={bobRef}>
