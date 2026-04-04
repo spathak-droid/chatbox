@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useAppStore } from '@/stores/appStore'
-import type { CharacterMode } from '../types'
+import type { CharacterMode } from '../ThinkingCharacter'
 
 const API_BASE = (import.meta.env.VITE_API_BASE as string) || 'http://localhost:3000/api'
 
