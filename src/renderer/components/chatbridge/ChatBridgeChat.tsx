@@ -372,6 +372,16 @@ export function ChatBridgeChat({ token, user, onLogout }: ChatBridgeChatProps) {
                   const appSessionId = event.result.appSessionId || event.result.sessionId || `session-${Date.now()}`
                   const sessionState = event.result.data || event.result.state || event.result || {}
 
+                  // Auto-close old panel when a different app starts (LLM didn't call end_session)
+                  setActivePanel((prev) => {
+                    if (prev && prev.appId !== appId) {
+                      dismissedSessionsRef.current.add(prev.appSessionId)
+                      return null
+                    }
+                    return prev
+                  })
+                  setSecondaryPanel(null)
+
                   const iframe = {
                     appId,
                     iframeUrl,
