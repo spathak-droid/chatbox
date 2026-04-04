@@ -151,6 +151,7 @@ Math: Read currentIndex, correct, incorrect. Know which problem they're on. If t
   // Find the currently active app (if any) so follow-up messages scope to it
   const activeAppId = relevantSessions.find(s => s.status === 'active')?.appId || null
   const scopedTools = scopeToolsToIntent(toolSchemas, lastUserMessage, activeAppId)
+  console.log(`[SCOPE] activeApp=${activeAppId}, msg="${lastUserMessage.slice(0, 50)}", tools=[${scopedTools.map((t: any) => t.function?.name).join(', ')}]`)
 
   // Set SSE headers if not already set by the caller
   if (!res.headersSent) {
@@ -534,6 +535,7 @@ const APP_TOOL_PREFIX: Record<string, string> = {
   'math-practice': 'math_',
   'flashcards': 'flashcards_',
   'google-calendar': 'calendar_',
+  'whiteboard': 'whiteboard_',
 }
 
 export function scopeToolsToIntent(allTools: any[], userMessage: string, activeAppId?: string | null): any[] {
@@ -542,8 +544,9 @@ export function scopeToolsToIntent(allTools: any[], userMessage: string, activeA
   const wantsChess = /chess|play a game|let'?s play(?!\s*\w)/.test(userMessage)
   const wantsMath = /math|practice|problems|addition|algebra|subtract|multipl|divid/.test(userMessage)
   const wantsFlashcards = /flash(?:card)?|quiz|review|learn about|study(?!.*(?:block|plan|schedule|calendar))/.test(userMessage)
+  const wantsWhiteboard = /whiteboard|draw|sketch/.test(userMessage)
 
-  const hasIntent = wantsChess || wantsMath || wantsFlashcards || wantsCalendar
+  const hasIntent = wantsChess || wantsMath || wantsFlashcards || wantsCalendar || wantsWhiteboard
 
   // If no clear intent but an app is active, scope to that app's tools
   // This handles follow-up messages like "what is the answer?" during math
@@ -560,12 +563,26 @@ export function scopeToolsToIntent(allTools: any[], userMessage: string, activeA
   }
 
   // Only include tools for the matched app(s)
+  // When switching apps, also include the old app's end/finish tool so LLM can close it
+  const activePrefix = activeAppId ? APP_TOOL_PREFIX[activeAppId] : null
+  const isSwitchingApps = hasIntent && activePrefix && !(
+    (wantsChess && activeAppId === 'chess') ||
+    (wantsMath && activeAppId === 'math-practice') ||
+    (wantsFlashcards && activeAppId === 'flashcards') ||
+    (wantsCalendar && activeAppId === 'google-calendar') ||
+    (wantsWhiteboard && activeAppId === 'whiteboard')
+  )
+
   return allTools.filter(tool => {
     const name = tool.function?.name || ''
     if (wantsChess && name.startsWith('chess_')) return true
     if (wantsMath && name.startsWith('math_')) return true
     if (wantsFlashcards && name.startsWith('flashcards_')) return true
     if (wantsCalendar && name.startsWith('calendar_')) return true
+    if (wantsWhiteboard && name.startsWith('whiteboard_')) return true
+    // Include old app's end/finish/stop tools when switching
+    if (isSwitchingApps && activePrefix && name.startsWith(activePrefix) &&
+        /end_game|finish|stop|end_session|close/.test(name)) return true
     return false
   })
 }

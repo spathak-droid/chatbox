@@ -271,6 +271,7 @@ chatRoutes.post('/conversations/:id/close-app', requireAuth, async (req, res, ne
     const sanitizedState = sanitizeStateForLLM(appId, appState || {})
 
     // Generate farewell via LLM
+    console.log(`[close-app] Generating farewell for ${appId}, state: ${sanitizedState}`)
     let farewell = ''
     try {
       const farewellResponse = await fetch('https://openrouter.ai/api/v1/chat/completions', {
@@ -293,10 +294,11 @@ chatRoutes.post('/conversations/:id/close-app', requireAuth, async (req, res, ne
         const data = await farewellResponse.json()
         farewell = data.choices?.[0]?.message?.content || ''
       }
-    } catch {
-      // Fallback — no farewell if LLM fails
+    } catch (llmErr) {
+      console.error('[close-app] LLM farewell failed:', llmErr)
     }
 
+    console.log(`[close-app] Farewell result: ${farewell ? farewell.slice(0, 100) : '(empty)'}`)
     if (farewell) {
       await query(
         'INSERT INTO messages (conversation_id, role, content) VALUES ($1, $2, $3)',

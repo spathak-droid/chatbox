@@ -17,5 +17,6 @@ export const config = {
     googleCalendar: process.env.CALENDAR_APP_URL || 'http://localhost:3002',
     chess: process.env.CHESS_APP_URL || 'http://localhost:3003',
     flashcards: process.env.FLASHCARDS_APP_URL || 'http://localhost:3004',
+    whiteboard: process.env.WHITEBOARD_APP_URL || 'http://localhost:3005',
   },
 }

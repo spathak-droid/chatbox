@@ -18,6 +18,7 @@ app.use(cors({
     config.appUrls.googleCalendar,
     config.appUrls.chess,
     config.appUrls.flashcards,
+    config.appUrls.whiteboard,
   ].filter(Boolean),
   credentials: true,
 }))
@@ -44,6 +45,7 @@ async function start() {
     config.appUrls.googleCalendar,
     config.appUrls.chess,
     config.appUrls.flashcards,
+    config.appUrls.whiteboard,
   ]
 
   for (const baseUrl of appEndpoints) {
