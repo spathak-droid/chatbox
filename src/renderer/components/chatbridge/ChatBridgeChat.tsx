@@ -20,7 +20,7 @@ import { IconMenu2, IconMessage, IconPlus, IconSend, IconTrash, IconX } from '@t
 import { AppIframe } from '@/components/app-blocks/AppIframe'
 import { useAppStore } from '@/stores/appStore'
 import confetti from 'canvas-confetti'
-import { ThinkingCharacter } from './ThinkingCharacter'
+import { ThinkingCharacter, type CharacterMode } from './ThinkingCharacter'
 
 const API_BASE = (import.meta.env.VITE_API_BASE as string) || 'http://localhost:3000/api'
 
@@ -107,6 +107,9 @@ export function ChatBridgeChat({ token, user, onLogout }: ChatBridgeChatProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
+  const [streaming, setStreaming] = useState(false)
+  const [toolExecuting, setToolExecuting] = useState(false)
+  const [characterMode, setCharacterMode] = useState<CharacterMode>('idle')
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [conversationId, setConversationId] = useState<string | null>(null)
   const [conversations, setConversations] = useState<Conversation[]>([])
@@ -145,6 +148,18 @@ export function ChatBridgeChat({ token, user, onLogout }: ChatBridgeChatProps) {
   useEffect(() => {
     loadConversations()
   }, [loadConversations])
+
+  useEffect(() => {
+    if (loading && !streaming && !toolExecuting) {
+      setCharacterMode('thinking')
+    } else if (toolExecuting) {
+      setCharacterMode('tool_executing')
+    } else if (streaming) {
+      setCharacterMode('streaming')
+    } else {
+      setCharacterMode('idle')
+    }
+  }, [loading, streaming, toolExecuting])
 
   // Load messages for a conversation
   const loadConversation = useCallback(
@@ -303,6 +318,8 @@ export function ChatBridgeChat({ token, user, onLogout }: ChatBridgeChatProps) {
                 break
               }
               case 'text': {
+                setStreaming(true)
+                setToolExecuting(false)
                 assistantText += event.content
                 setMessages((prev) =>
                   prev.map((m) => (m.id === assistantMsgId ? { ...m, content: assistantText } : m))
@@ -311,6 +328,8 @@ export function ChatBridgeChat({ token, user, onLogout }: ChatBridgeChatProps) {
                 break
               }
               case 'tool_call': {
+                setToolExecuting(true)
+                setStreaming(false)
                 currentToolCalls.push({
                   id: event.toolCallId,
                   name: event.toolName,
@@ -325,6 +344,7 @@ export function ChatBridgeChat({ token, user, onLogout }: ChatBridgeChatProps) {
                 break
               }
               case 'tool_result': {
+                setToolExecuting(false)
                 const toolName = event.toolName
                 // Don't create iframe entries for end/finish/cleanup tools
                 const isEndTool = /end_game|finish|stop|end_session/.test(toolName)
@@ -404,6 +424,8 @@ export function ChatBridgeChat({ token, user, onLogout }: ChatBridgeChatProps) {
                 break
               }
               case 'error': {
+                setCharacterMode('confused')
+                setTimeout(() => setCharacterMode('idle'), 3000)
                 assistantText += `\n\n**Error:** ${event.error}`
                 setMessages((prev) =>
                   prev.map((m) => (m.id === assistantMsgId ? { ...m, content: assistantText } : m))
@@ -429,6 +451,8 @@ export function ChatBridgeChat({ token, user, onLogout }: ChatBridgeChatProps) {
       )
     } finally {
       setLoading(false)
+      setStreaming(false)
+      setToolExecuting(false)
     }
   }, [input, loading, token, conversationId, scrollToBottom, setActiveApp, loadConversations])
 
@@ -645,6 +669,8 @@ export function ChatBridgeChat({ token, user, onLogout }: ChatBridgeChatProps) {
     (event: { type: string; detail: Record<string, unknown> }) => {
       if (event.type === 'level_complete' || event.type === 'game_won') {
         fireConfetti()
+        setCharacterMode('celebrating')
+        setTimeout(() => setCharacterMode('idle'), 3000)
       }
     },
     [fireConfetti]
@@ -709,6 +735,8 @@ export function ChatBridgeChat({ token, user, onLogout }: ChatBridgeChatProps) {
     (result: { won: boolean; result?: string }) => {
       if (result.won) {
         fireConfetti()
+        setCharacterMode('celebrating')
+        setTimeout(() => setCharacterMode('idle'), 3000)
       }
       // Close the panel after a delay so the user sees the final state
       setTimeout(() => {
@@ -845,7 +873,7 @@ export function ChatBridgeChat({ token, user, onLogout }: ChatBridgeChatProps) {
                 </Flex>
               )}
             </Stack>
-            <ThinkingCharacter mode="idle" containerRef={chatContainerRef} />
+            <ThinkingCharacter mode={characterMode} containerRef={chatContainerRef} />
           </div>
         </ScrollArea>
 
