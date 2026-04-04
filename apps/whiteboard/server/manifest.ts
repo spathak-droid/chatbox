@@ -1,4 +1,4 @@
-const baseUrl = process.env.WHITEBOARD_BASE_URL || 'http://localhost:3006'
+const baseUrl = process.env.WHITEBOARD_BASE_URL || 'http://localhost:3005'
 
 export const manifest = {
   id: 'whiteboard',

@@ -83,7 +83,7 @@ chatRoutes.get('/conversations', async (req, res, next) => {
     const result = await query(
       `SELECT c.id, c.title, c.created_at, c.updated_at,
         (SELECT content FROM messages WHERE conversation_id = c.id AND role = 'user' ORDER BY created_at DESC LIMIT 1) AS last_message,
-        (SELECT COUNT(*)::int FROM messages WHERE conversation_id = c.id AND role IN ('user','assistant')) AS message_count
+        (SELECT COUNT(*)::int FROM messages WHERE conversation_id = c.id AND role IN ('user','assistant') AND content IS NOT NULL AND content != '') AS message_count
        FROM conversations c WHERE c.user_id = $1 ORDER BY c.updated_at DESC`,
       [req.user!.id]
     )
