@@ -8,6 +8,7 @@ import { getSessionsForConversation } from '../apps/session.js'
 import { config } from '../config.js'
 import { sanitizeStateForLLM } from '../security/sanitize.js'
 import { rateLimiter } from '../middleware/rate-limiter.js'
+import { log } from '../lib/logger.js'
 
 export const chatRoutes = Router()
 
@@ -152,9 +153,13 @@ chatRoutes.post('/conversations/:id/sync-app-state', async (req, res, next) => {
 })
 
 // Get pending actions for a conversation
-chatRoutes.get('/conversations/:id/pending-actions', requireAuth, (req, res) => {
-  const actions = getPendingActions(req.params.id)
-  res.json({ actions })
+chatRoutes.get('/conversations/:id/pending-actions', requireAuth, async (req, res, next) => {
+  try {
+    const actions = await getPendingActions(req.params.id)
+    res.json({ actions })
+  } catch (err) {
+    next(err)
+  }
 })
 
 // Confirm and execute pending actions
@@ -208,9 +213,13 @@ chatRoutes.post('/conversations/:id/confirm-actions', requireAuth, async (req, r
 })
 
 // Cancel pending actions
-chatRoutes.post('/conversations/:id/cancel-actions', requireAuth, (req, res) => {
-  clearPendingActions(req.params.id)
-  res.json({ ok: true })
+chatRoutes.post('/conversations/:id/cancel-actions', requireAuth, async (req, res, next) => {
+  try {
+    await clearPendingActions(req.params.id)
+    res.json({ ok: true })
+  } catch (err) {
+    next(err)
+  }
 })
 
 // Close an app and request LLM farewell summary
@@ -238,7 +247,7 @@ chatRoutes.post('/conversations/:id/close-app', requireAuth, async (req, res, ne
     const sanitizedState = sanitizeStateForLLM(appId, appState || {})
 
     // Generate farewell via LLM
-    console.log(`[close-app] Generating farewell for ${appId}, state: ${sanitizedState}`)
+    log.info('Close app', { appId, state: sanitizedState })
     let farewell = ''
     try {
       const farewellResponse = await fetch('https://openrouter.ai/api/v1/chat/completions', {
@@ -263,10 +272,10 @@ chatRoutes.post('/conversations/:id/close-app', requireAuth, async (req, res, ne
         farewell = data.choices?.[0]?.message?.content || ''
       }
     } catch (llmErr) {
-      console.error('[close-app] LLM farewell failed:', llmErr)
+      log.error('LLM farewell failed', { appId, error: String(llmErr) })
     }
 
-    console.log(`[close-app] Farewell result: ${farewell ? farewell.slice(0, 100) : '(empty)'}`)
+    log.info('Close app farewell', { appId, farewell: farewell ? farewell.slice(0, 100) : '(empty)' })
     if (farewell) {
       await query(
         'INSERT INTO messages (conversation_id, role, content) VALUES ($1, $2, $3)',
@@ -280,9 +289,14 @@ chatRoutes.post('/conversations/:id/close-app', requireAuth, async (req, res, ne
   }
 })
 
-// Get moderation events for a conversation (teacher/admin access)
+// Get moderation events for a conversation (teacher/admin access only)
 chatRoutes.get('/conversations/:id/moderation-log', requireAuth, async (req, res, next) => {
   try {
+    const role = req.user!.role
+    if (role !== 'teacher' && role !== 'admin') {
+      return res.status(403).json({ error: 'Forbidden: teacher or admin role required' })
+    }
+
     const conversationId = req.params.id
     const result = await query(
       `SELECT ml.* FROM moderation_log ml
@@ -298,6 +312,15 @@ chatRoutes.get('/conversations/:id/moderation-log', requireAuth, async (req, res
 
 chatRoutes.get('/conversations/:id/messages', async (req, res, next) => {
   try {
+    // Verify conversation ownership
+    const convCheck = await query(
+      'SELECT id FROM conversations WHERE id = $1 AND user_id = $2',
+      [req.params.id, req.user!.id]
+    )
+    if (convCheck.rows.length === 0) {
+      return res.status(404).json({ error: 'Conversation not found' })
+    }
+
     const result = await query(
       `SELECT id, role, content, tool_call_id, tool_name, tool_args, tool_result, app_id, metadata, created_at
        FROM messages WHERE conversation_id = $1 ORDER BY created_at ASC`,

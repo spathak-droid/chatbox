@@ -1,4 +1,5 @@
 import { query } from '../db/client.js'
+import { log } from '../lib/logger.js'
 
 // ============ MESSAGE PERSISTENCE ============
 // Anthropic API requires: assistant (with tool_use) → tool (results) → assistant (text)
@@ -38,6 +39,6 @@ export async function persistAssistantMessage(
       )
     }
   } catch (err) {
-    console.error('[PERSIST] Failed to save assistant message:', err)
+    log.error('Failed to save assistant message', { conversationId, error: String(err) })
   }
 }

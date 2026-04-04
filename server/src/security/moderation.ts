@@ -1,4 +1,5 @@
 import { query } from '../db/client.js'
+import { log } from '../lib/logger.js'
 
 const UNSAFE_PATTERNS: Array<{ pattern: RegExp; category: string; reason: string }> = [
   { pattern: /\b(kill\s+yourself|suicide|self-harm|cut yourself)\b/i, category: 'self_harm', reason: 'Contains self-harm content' },
@@ -65,5 +66,5 @@ export async function logModerationEvent(
     `INSERT INTO moderation_log (conversation_id, user_id, category, flagged_content, action, created_at)
      VALUES ($1, $2, $3, $4, $5, NOW())`,
     [conversationId, userId, category, flaggedContent.slice(0, 1000), action]
-  ).catch(err => console.error('[MODERATION] Failed to log event:', err))
+  ).catch(err => log.error('Failed to log moderation event', { conversationId, error: String(err) }))
 }

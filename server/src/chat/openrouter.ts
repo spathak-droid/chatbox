@@ -1,4 +1,5 @@
 import { config } from '../config.js'
+import { log } from '../lib/logger.js'
 import { scopeToolsToIntent } from './tool-scoping.js'
 import { sanitizeToolSummary } from '../security/sanitize.js'
 import { summarizeOldToolCalls, ChatMessage } from './message-summarizer.js'
@@ -47,7 +48,7 @@ export async function streamChatWithTools(
   // ============ DYNAMIC TOOL SCOPING ============
   // Only send tools relevant to the user's current message
   const scopedTools = scopeToolsToIntent(toolSchemas, lastUserMessage, activeAppId)
-  console.log(`[SCOPE] activeApp=${activeAppId}, msg="${lastUserMessage.slice(0, 50)}", tools=[${scopedTools.map((t: any) => t.function?.name).join(', ')}]`)
+  log.info('Tool scoping', { activeApp: activeAppId, msg: lastUserMessage.slice(0, 50), tools: scopedTools.map((t: any) => t.function?.name) })
 
   // Set SSE headers if not already set by the caller
   if (!res.headersSent) {
@@ -136,7 +137,7 @@ export async function streamChatWithTools(
     const scopedToolNames = new Set(scopedTools.map(t => t.function?.name).filter(Boolean))
     const validatedToolCalls = pass1ToolCalls.filter(tc => {
       if (scopedToolNames.has(tc.function.name)) return true
-      console.log(`[GUARDRAIL] Blocked hallucinated tool: ${tc.function.name} (not in scoped tools)`)
+      log.warn('Blocked hallucinated tool', { tool: tc.function.name })
       return false
     })
 
@@ -289,7 +290,7 @@ export async function streamChatWithTools(
             res.write(`data: ${JSON.stringify({ type: 'text', content: delta.content })}\n\n`)
             fullResponseText += delta.content
           } else {
-            console.warn(`[MODERATION] Flagged content in conversation ${conversationId}: category=${check.category}`)
+            log.warn('Flagged content', { conversationId, category: check.category })
             logModerationEvent(conversationId, userId, check.category || 'unknown', moderator.getBuffer(), 'blocked')
             // Replace with safe message
             const safeMsg = "\n\nI need to stay focused on helping you learn! Let me know what you'd like to work on."
