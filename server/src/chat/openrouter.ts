@@ -1,4 +1,5 @@
 import { config } from '../config.js'
+import { sanitizeStateForLLM } from '../security/sanitize.js'
 import { getAllToolSchemas, findAppByToolName, getCachedApps } from '../apps/registry.js'
 import { routeToolCall, DESTRUCTIVE_TOOLS } from '../apps/tool-router.js'
 import { getSessionsForConversation } from '../apps/session.js'
@@ -48,7 +49,7 @@ export async function streamChatWithTools(
           if (state?.gameOver) {
             return `[Completed app: ${s.appId} — game is finished. If user wants to play again, call the start tool immediately.]`
           }
-          return `[Active app: ${s.appId}, state: ${JSON.stringify(s.state)}]`
+          return `[Active app: ${s.appId}, state: ${sanitizeStateForLLM(s.appId, s.state as Record<string, unknown>)}]`
         }
         if (s.status === 'completed' || s.summary) {
           return `[Completed app: ${s.appId} — ${s.summary || 'finished'}. If user wants to play again, call the start tool immediately.]`

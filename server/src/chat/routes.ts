@@ -6,49 +6,7 @@ import { streamChatWithTools } from './openrouter.js'
 import { getPendingActions, executePendingActions, clearPendingActions } from '../apps/tool-router.js'
 import { getSessionsForConversation } from '../apps/session.js'
 import { config } from '../config.js'
-
-function sanitizeStateForLLM(appId: string, state: Record<string, unknown>): string {
-  const SENSITIVE_KEYS = ['accessToken', 'access_token', 'refreshToken', 'refresh_token', 'platformToken', 'userId', 'user_id', '_refreshTrigger']
-  const clean: Record<string, unknown> = {}
-  for (const [key, value] of Object.entries(state)) {
-    if (!SENSITIVE_KEYS.includes(key)) {
-      clean[key] = value
-    }
-  }
-  switch (appId) {
-    case 'chess': {
-      const parts: string[] = []
-      if (clean.fen) parts.push(`Position: ${clean.fen}`)
-      if (clean.moves) parts.push(`Moves played: ${Array.isArray(clean.moves) ? clean.moves.length : clean.moves}`)
-      if (clean.gameOver) parts.push(`Game over: ${clean.result || 'unknown'}`)
-      if (clean.playerColor) parts.push(`Playing as: ${clean.playerColor}`)
-      return parts.length > 0 ? parts.join('. ') : 'Chess game in progress.'
-    }
-    case 'math-practice': {
-      const parts: string[] = []
-      if (clean.correct !== undefined) parts.push(`Correct: ${clean.correct}`)
-      if (clean.incorrect !== undefined) parts.push(`Incorrect: ${clean.incorrect}`)
-      if (clean.topic) parts.push(`Topic: ${clean.topic}`)
-      if (clean.currentIndex !== undefined) parts.push(`Problems attempted: ${clean.currentIndex}`)
-      return parts.length > 0 ? parts.join('. ') : 'Math session in progress.'
-    }
-    case 'flashcards': {
-      const parts: string[] = []
-      if (clean.cardsTotal) parts.push(`Total cards: ${clean.cardsTotal}`)
-      if (clean.cardsReviewed !== undefined) parts.push(`Reviewed: ${clean.cardsReviewed}`)
-      if (clean.topic) parts.push(`Topic: ${clean.topic}`)
-      return parts.length > 0 ? parts.join('. ') : 'Flashcard session in progress.'
-    }
-    case 'google-calendar': {
-      const parts: string[] = []
-      if (clean.events && Array.isArray(clean.events)) parts.push(`${clean.events.length} events visible`)
-      if (clean.studyBlocks && Array.isArray(clean.studyBlocks)) parts.push(`${clean.studyBlocks.length} study blocks`)
-      return parts.length > 0 ? parts.join('. ') : 'Calendar session.'
-    }
-    default:
-      return JSON.stringify(clean).slice(0, 500)
-  }
-}
+import { sanitizeStateForLLM } from '../security/sanitize.js'
 
 export const chatRoutes = Router()
 
