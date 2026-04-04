@@ -10,6 +10,7 @@ interface AppIframeProps {
   onToolRequest?: (request: { tool: string; args: Record<string, unknown> }) => void
   onGameOver?: (result: { won: boolean; result?: string }) => void
   onStateChange?: (state: Record<string, unknown>) => void
+  onGameEvent?: (event: { type: string; detail: Record<string, unknown> }) => void
   platformToken?: string
   fillHeight?: boolean
 }
@@ -23,6 +24,7 @@ export function AppIframe({
   onToolRequest,
   onGameOver,
   onStateChange,
+  onGameEvent,
   platformToken,
   fillHeight,
 }: AppIframeProps) {
@@ -57,7 +59,7 @@ export function AppIframe({
       const msg = e.data
       if (!msg?.type) return
       // Validate message has a known type — reject unknown message types
-      const VALID_APP_MESSAGES = ['app.ready', 'app.state_patch', 'app.tool_request', 'app.resize', 'app.complete', 'app.game_over', 'app.error']
+      const VALID_APP_MESSAGES = ['app.ready', 'app.state_patch', 'app.tool_request', 'app.resize', 'app.complete', 'app.game_over', 'app.game_event', 'app.error']
       if (!VALID_APP_MESSAGES.includes(msg.type)) return
 
       switch (msg.type) {
@@ -111,6 +113,10 @@ export function AppIframe({
           onGameOver?.({ won: !!msg.won, result: msg.result ? String(msg.result) : 'complete' })
           break
         }
+        case 'app.game_event': {
+          onGameEvent?.({ type: msg.event, detail: msg.detail ?? {} })
+          break
+        }
         case 'app.error': {
           setError(msg.error ?? 'Unknown app error')
           break
@@ -159,7 +165,12 @@ export function AppIframe({
       <iframe
         ref={iframeRef}
         src={iframeUrl}
-        sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox allow-same-origin"
+        sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox allow-same-origin allow-forms"
+        onLoad={() => {
+          // External apps (whiteboard, etc.) don't send app.ready via postMessage.
+          // Hide the loader once the iframe finishes loading.
+          setTimeout(() => setLoading(false), 500)
+        }}
         style={{
           width: '100%',
           height: fillHeight ? '100%' : iframeHeight,

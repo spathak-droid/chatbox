@@ -359,10 +359,13 @@
           }
           break
 
-        case 'host.state_patch':
+        case 'host.state_patch': {
+          const hadRefreshTrigger = msg.patch._refreshTrigger && msg.patch._refreshTrigger !== state._refreshTrigger
           state = { ...state, ...msg.patch }
           render()
+          if (hadRefreshTrigger) requestRefreshEvents()
           break
+        }
 
         case 'host.tool_result':
           handleToolResult(msg.toolName, msg.result)
