@@ -1,10 +1,16 @@
 // server/src/config.ts
 import 'dotenv/config'
 
+const isProduction = process.env.NODE_ENV === 'production'
+
+if (isProduction && !process.env.JWT_SECRET) {
+  throw new Error('JWT_SECRET environment variable is required in production')
+}
+
 export const config = {
   port: parseInt(process.env.PORT || '3000', 10),
   databaseUrl: process.env.DATABASE_URL || 'postgresql://localhost:5432/chatbridge',
-  jwtSecret: process.env.JWT_SECRET || 'dev-secret-change-in-production',
+  jwtSecret: process.env.JWT_SECRET || 'dev-secret-only-do-not-use-in-prod',
   openrouterApiKey: process.env.OPENROUTER_API_KEY || '',
   openrouterModel: process.env.OPENROUTER_MODEL || 'anthropic/claude-sonnet-4',
 

@@ -10,7 +10,8 @@ export function errorHandler(err: unknown, _req: Request, res: Response, _next: 
   }
 
   if (err instanceof Error) {
-    return res.status(500).json({ error: err.message })
+    // Never leak internal error details to the client
+    return res.status(500).json({ error: 'Internal server error' })
   }
 
   res.status(500).json({ error: 'Internal server error' })

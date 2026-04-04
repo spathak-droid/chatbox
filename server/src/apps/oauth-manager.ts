@@ -1,5 +1,6 @@
 import { config } from '../config.js'
 import { query } from '../db/client.js'
+import { encrypt, decrypt } from '../security/crypto.js'
 
 export async function getOAuthConnection(userId: string, provider: string) {
   const result = await query(
@@ -8,6 +9,9 @@ export async function getOAuthConnection(userId: string, provider: string) {
   )
   if (result.rows.length === 0) return null
   const conn = result.rows[0]
+  // Decrypt tokens when reading from DB
+  conn.access_token = decrypt(conn.access_token)
+  if (conn.refresh_token) conn.refresh_token = decrypt(conn.refresh_token)
   if (conn.expires_at && new Date(conn.expires_at) < new Date()) {
     if (conn.refresh_token) return refreshToken(userId, provider, conn.refresh_token)
     return null
@@ -33,7 +37,7 @@ export async function saveOAuthConnection(
        expires_at = EXCLUDED.expires_at,
        email = COALESCE(EXCLUDED.email, oauth_connections.email),
        updated_at = NOW()`,
-    [userId, provider, accessToken, refreshToken || null, expiresAt || null, scopes || null, email || null]
+    [userId, provider, encrypt(accessToken), refreshToken ? encrypt(refreshToken) : null, expiresAt || null, scopes || null, email || null]
   )
 }
 

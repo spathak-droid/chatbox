@@ -1,5 +1,6 @@
 // server/src/index.ts
 import cors from 'cors'
+import helmet from 'helmet'
 import express from 'express'
 import { config } from './config.js'
 import { authRoutes } from './auth/routes.js'
@@ -12,6 +13,10 @@ import { initQueue } from './queue/llm-queue.js'
 
 const app = express()
 
+app.use(helmet({
+  contentSecurityPolicy: false, // CSP handled by frontend/iframes
+  crossOriginEmbedderPolicy: false, // Allow iframe embedding
+}))
 app.use(cors({
   origin: [
     config.corsOrigin,
