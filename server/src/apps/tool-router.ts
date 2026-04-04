@@ -3,6 +3,7 @@ import { query } from '../db/client.js'
 import { findAppByToolName } from './registry.js'
 import { getOrCreateSession, updateSession } from './session.js'
 import { getOAuthConnection } from './oauth-manager.js'
+import { stripSensitiveKeys } from '../security/sanitize.js'
 
 const TOOL_TIMEOUT_MS = 15000
 
@@ -93,12 +94,29 @@ export async function routeToolCall(
   const startTime = Date.now()
 
   try {
-    // Inject OAuth token for calendar tools
     let sessionState = session.state as Record<string, unknown>
+
+    // Determine trust tier from app manifest
+    const trustTier = (app as any).trustTier || 'unverified'
+
+    // For calendar tools, mark connected status in session (but don't put token in state)
     if (toolName.startsWith('calendar_')) {
       const oauthConn = await getOAuthConnection(context.userId, 'google')
       if (oauthConn) {
-        sessionState = { ...sessionState, accessToken: oauthConn.access_token, connected: true }
+        sessionState = { ...sessionState, connected: true }
+      }
+    }
+
+    // Filter state based on trust tier — NEVER send raw tokens
+    const filteredState = trustTier === 'unverified' ? {} : stripSensitiveKeys(sessionState)
+
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+
+    // Internal apps that need OAuth get the token via a secure header (not in body)
+    if (trustTier === 'internal' && toolName.startsWith('calendar_')) {
+      const oauthConn = await getOAuthConnection(context.userId, 'google')
+      if (oauthConn) {
+        headers['X-Platform-OAuth-Token'] = oauthConn.access_token
       }
     }
 
@@ -107,13 +125,12 @@ export async function routeToolCall(
 
     const response = await fetch(`${app.baseUrl}/api/tools/${toolName}`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       body: JSON.stringify({
         args,
         sessionId: session.id,
-        sessionState,
-        userId: context.userId,
-        platformToken: context.authToken,
+        sessionState: filteredState,
+        // NO userId, NO platformToken — apps don't get user credentials
       }),
       signal: controller.signal,
     })

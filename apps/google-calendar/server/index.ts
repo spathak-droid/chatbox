@@ -25,10 +25,15 @@ app.get('/api/manifest', (_req, res) => {
 // Tool execution endpoint
 app.post('/api/tools/:toolName', async (req, res) => {
   const { toolName } = req.params
-  const { args = {}, sessionState = {}, userId, platformToken } = req.body
+  const { args, sessionState } = req.body
+  // Read OAuth token from secure platform header
+  const oauthToken = req.headers['x-platform-oauth-token'] as string | undefined
+  const stateWithToken = oauthToken
+    ? { ...sessionState, accessToken: oauthToken }
+    : sessionState || {}
 
   try {
-    const result = await handleTool(toolName, args, sessionState, userId, platformToken)
+    const result = await handleTool(toolName, args || {}, stateWithToken)
     res.json(result)
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error'
