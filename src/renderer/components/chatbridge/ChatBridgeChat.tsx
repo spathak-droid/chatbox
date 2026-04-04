@@ -616,6 +616,21 @@ export function ChatBridgeChat({ token, user, onLogout }: ChatBridgeChatProps) {
               : m
           )
         )
+
+        // Merge tool result data into panel state so iframe updates immediately
+        // Also include _refreshTrigger so the iframe re-fetches from Google
+        const resultData: Record<string, unknown> = {}
+        for (const r of (data.results || [])) {
+          if (r.data) Object.assign(resultData, r.data)
+        }
+        const trigger = Date.now()
+        const mergedPatch = { ...resultData, _refreshTrigger: trigger }
+        setActivePanel((prev) =>
+          prev ? { ...prev, sessionState: { ...prev.sessionState, ...mergedPatch } } : prev
+        )
+        setSecondaryPanel((prev) =>
+          prev ? { ...prev, sessionState: { ...prev.sessionState, ...mergedPatch } } : prev
+        )
       } else {
         setMessages((prev) =>
           prev.map((m) =>
@@ -635,17 +650,6 @@ export function ChatBridgeChat({ token, user, onLogout }: ChatBridgeChatProps) {
       )
     }
 
-    // Trigger sidebar iframe refresh so user doesn't have to click Refresh manually
-    // Small delay to ensure server-side changes are committed
-    setTimeout(() => {
-      const trigger = Date.now()
-      setActivePanel((prev) =>
-        prev ? { ...prev, sessionState: { ...prev.sessionState, _refreshTrigger: trigger } } : prev
-      )
-      setSecondaryPanel((prev) =>
-        prev ? { ...prev, sessionState: { ...prev.sessionState, _refreshTrigger: trigger } } : prev
-      )
-    }, 500)
     setIsConfirming(false)
   }, [conversationId, token, pendingActions])
 
