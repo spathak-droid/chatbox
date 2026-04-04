@@ -172,7 +172,7 @@ export function AppIframe({
         src={iframeUrl}
         sandbox={
           trustTier === 'internal'
-            ? 'allow-scripts allow-same-origin allow-forms'
+            ? 'allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox'
             : trustTier === 'verified'
               ? 'allow-scripts allow-forms'
               : 'allow-scripts'
