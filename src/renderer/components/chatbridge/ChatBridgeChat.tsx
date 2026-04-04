@@ -63,6 +63,7 @@ interface ChatMessage {
     iframeUrl: string
     sessionState: Record<string, unknown>
     appSessionId: string
+    trustTier?: string
   }>
 }
 
@@ -354,6 +355,7 @@ export function ChatBridgeChat({ token, user, onLogout }: ChatBridgeChatProps) {
                     iframeUrl,
                     sessionState,
                     appSessionId,
+                    trustTier: (event.result?.trustTier as string) || 'internal',
                   }
                   // Replace existing iframe for same app (avoid duplicates)
                   const existingIdx = currentAppIframes.findIndex((f) => f.appId === appId)
@@ -1002,6 +1004,7 @@ export function ChatBridgeChat({ token, user, onLogout }: ChatBridgeChatProps) {
                   iframeUrl={activePanel.iframeUrl}
                   sessionState={activePanel.sessionState}
                   appSessionId={activePanel.appSessionId}
+                  trustTier={(activePanel as any).trustTier || 'internal'}
                   onToolRequest={handleToolRequest}
                   onGameOver={handleGameOver}
                   onStateChange={handleStateChange}
@@ -1035,6 +1038,7 @@ export function ChatBridgeChat({ token, user, onLogout }: ChatBridgeChatProps) {
                   iframeUrl={secondaryPanel.iframeUrl}
                   sessionState={secondaryPanel.sessionState}
                   appSessionId={secondaryPanel.appSessionId}
+                  trustTier={(secondaryPanel as any).trustTier || 'internal'}
                   onToolRequest={handleToolRequest}
                   onGameOver={handleGameOver}
                   onStateChange={handleStateChange}

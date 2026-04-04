@@ -6,6 +6,7 @@ interface AppIframeProps {
   iframeUrl: string
   sessionState: Record<string, unknown>
   appSessionId: string
+  trustTier?: 'internal' | 'verified' | 'unverified'
   onComplete?: (result: Record<string, unknown>) => void
   onToolRequest?: (request: { tool: string; args: Record<string, unknown> }) => void
   onGameOver?: (result: { won: boolean; result?: string }) => void
@@ -20,6 +21,7 @@ export function AppIframe({
   iframeUrl,
   sessionState,
   appSessionId,
+  trustTier = 'internal',
   onComplete,
   onToolRequest,
   onGameOver,
@@ -64,14 +66,17 @@ export function AppIframe({
 
       switch (msg.type) {
         case 'app.ready': {
-          // Send init with current state
-          iframe.contentWindow?.postMessage({
+          const initMsg: Record<string, unknown> = {
             type: 'host.init',
             appSessionId,
             state: stateRef.current,
-            platformToken: tokenRef.current,
-            platformUrl: (import.meta.env.VITE_API_BASE as string)?.replace(/\/api$/, '') || 'http://localhost:3000',
-          }, '*') // Must use '*' — sandboxed iframe origin is "null"
+          }
+          // Only internal apps get platform credentials
+          if (trustTier === 'internal') {
+            initMsg.platformToken = tokenRef.current
+            initMsg.platformUrl = (import.meta.env.VITE_API_BASE as string)?.replace(/\/api$/, '') || 'http://localhost:3000'
+          }
+          iframe.contentWindow?.postMessage(initMsg, '*') // Must use '*' — sandboxed iframe origin is "null"
           sentInit.current = true
           setLoading(false)
           break
@@ -165,7 +170,13 @@ export function AppIframe({
       <iframe
         ref={iframeRef}
         src={iframeUrl}
-        sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox allow-same-origin allow-forms"
+        sandbox={
+          trustTier === 'internal'
+            ? 'allow-scripts allow-same-origin allow-forms'
+            : trustTier === 'verified'
+              ? 'allow-scripts allow-forms'
+              : 'allow-scripts'
+        }
         onLoad={() => {
           // External apps (whiteboard, etc.) don't send app.ready via postMessage.
           // Hide the loader once the iframe finishes loading.
