@@ -7,7 +7,7 @@ export const manifest = {
   category: 'productivity' as const,
   authType: 'none' as const,
   baseUrl,
-  trustTier: 'internal' as const,
+  trustTier: 'verified' as const,
   iframeUrl: 'https://excalidraw.com',
   permissions: [],
   activationKeywords: ['whiteboard', 'draw', 'diagram', 'sketch', 'brainstorm', 'collab board', 'collaborative board'],

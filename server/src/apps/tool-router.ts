@@ -159,6 +159,7 @@ export async function routeToolCall(
     }
 
     result.appSessionId = session.id
+    result.trustTier = trustTier
     return result
   } catch (err) {
     const durationMs = Date.now() - startTime

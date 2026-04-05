@@ -7,6 +7,7 @@ export const AppResultEnvelopeSchema = z.object({
   uiUrl: z.string().optional(),
   error: z.string().optional(),
   appSessionId: z.string().optional(),
+  trustTier: z.string().optional(),
 })
 
 export const AppSessionSchema = z.object({
