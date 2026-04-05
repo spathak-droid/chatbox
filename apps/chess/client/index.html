@@ -202,11 +202,11 @@ function changeDifficulty(difficulty) {
   chosenDifficulty = difficulty
   updateDifficultyButtons()
   // Ask the parent to restart the game with the new difficulty
-  sendToHost({
+  window.parent.postMessage({
     type: 'app.tool_request',
     toolName: 'chess_start_game',
     args: { playerColor: gameState?.playerColor || 'white', difficulty },
-  })
+  }, '*')
 }
 
 function updateDifficultyButtons() {
@@ -304,14 +304,11 @@ function render() {
     statusEl.innerHTML = (result || 'Game Over')
     statusEl.className = ''
   } else if (sending) {
-    statusEl.innerHTML = 'Making move...' + badge
-    statusEl.className = 'thinking'
+    statusEl.innerHTML = 'Making move...'    statusEl.className = 'thinking'
   } else if (!myTurn) {
-    statusEl.innerHTML = 'Opponent is thinking...' + badge
-    statusEl.className = 'thinking'
+    statusEl.innerHTML = 'Opponent is thinking...'    statusEl.className = 'thinking'
   } else {
-    statusEl.innerHTML = 'Your turn — tap a piece to move' + badge
-    statusEl.className = ''
+    statusEl.innerHTML = 'Your turn — tap a piece to move'    statusEl.className = ''
   }
 
   // Build a set of legal target squares for quick lookup
