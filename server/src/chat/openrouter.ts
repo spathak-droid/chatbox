@@ -13,11 +13,12 @@ import { persistAssistantMessage } from './message-persistence.js'
 import { buildSystemPrompt } from './system-prompt.js'
 import { buildAppContext, detectIntentApp } from './app-context.js'
 
-// Map from app ID to its start tool name and default args
+// Map from app ID to its start tool name and default args.
+// Only include apps whose start tools work with simple/no args.
+// Flashcards requires LLM-generated cards array — cannot be auto-injected.
 const APP_START_TOOL: Record<string, { name: string; defaultArgs: Record<string, unknown> }> = {
   'chess': { name: 'chess_start_game', defaultArgs: { playerColor: 'white' } },
   'math-practice': { name: 'math_start_session', defaultArgs: { topic: 'addition', difficulty: 'easy' } },
-  'flashcards': { name: 'flashcards_start_deck', defaultArgs: {} },
   'google-calendar': { name: 'calendar_start_connect', defaultArgs: {} },
   'whiteboard': { name: 'whiteboard_open', defaultArgs: {} },
 }
