@@ -39,6 +39,17 @@ export function AppIframe({
   stateRef.current = sessionState
   const tokenRef = useRef(platformToken)
   tokenRef.current = platformToken
+  // Keep refs to callbacks so the message handler always uses the latest version
+  const onCompleteRef = useRef(onComplete)
+  onCompleteRef.current = onComplete
+  const onGameOverRef = useRef(onGameOver)
+  onGameOverRef.current = onGameOver
+  const onToolRequestRef = useRef(onToolRequest)
+  onToolRequestRef.current = onToolRequest
+  const onStateChangeRef = useRef(onStateChange)
+  onStateChangeRef.current = onStateChange
+  const onGameEventRef = useRef(onGameEvent)
+  onGameEventRef.current = onGameEvent
 
   // Derive target origin from iframe URL for secure postMessage.
   // Note: sandbox="allow-scripts allow-popups" (without allow-same-origin)
@@ -88,14 +99,14 @@ export function AppIframe({
           break
         }
         case 'app.complete': {
-          onComplete?.(msg.result ?? { summary: msg.summary })
-          onGameOver?.({ won: true, result: msg.summary || 'complete' })
+          onCompleteRef.current?.(msg.result ?? { summary: msg.summary })
+          onGameOverRef.current?.({ won: true, result: msg.summary || 'complete' })
           break
         }
         case 'app.tool_request': {
           const toolName = msg.toolName || msg.tool
           if (toolName) {
-            onToolRequest?.({ tool: toolName, args: msg.args ?? {} })
+            onToolRequestRef.current?.({ tool: toolName, args: msg.args ?? {} })
           }
           break
         }
@@ -103,23 +114,23 @@ export function AppIframe({
           // App sent a state update
           const patchState = msg.state || msg.patch
           if (patchState) {
-            onStateChange?.(patchState)
+            onStateChangeRef.current?.(patchState)
             // Generic completion detection from state — apps can signal
             // done via gameOver, finished, completed, or done fields
             if (patchState.gameOver || patchState.finished || patchState.completed || patchState.done) {
               const result = patchState.result ? String(patchState.result) : 'complete'
-              onGameOver?.({ won: !!patchState.won, result })
+              onGameOverRef.current?.({ won: !!patchState.won, result })
             }
           }
           break
         }
         case 'app.game_over': {
           // Legacy: treat as app.complete for backwards compatibility
-          onGameOver?.({ won: !!msg.won, result: msg.result ? String(msg.result) : 'complete' })
+          onGameOverRef.current?.({ won: !!msg.won, result: msg.result ? String(msg.result) : 'complete' })
           break
         }
         case 'app.game_event': {
-          onGameEvent?.({ type: msg.event, detail: msg.detail ?? {} })
+          onGameEventRef.current?.({ type: msg.event, detail: msg.detail ?? {} })
           break
         }
         case 'app.error': {
