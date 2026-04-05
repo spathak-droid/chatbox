@@ -9,7 +9,7 @@ const APP_PREFIX_MAP: Record<string, string> = {
   calendar_: (import.meta.env.VITE_CALENDAR_APP_URL as string) || 'http://localhost:3002/app',
   chess_: (import.meta.env.VITE_CHESS_APP_URL as string) || 'http://localhost:3003/app',
   flashcards_: (import.meta.env.VITE_FLASHCARDS_APP_URL as string) || 'http://localhost:3004/app',
-  whiteboard_: (import.meta.env.VITE_WHITEBOARD_EMBED_URL as string) || 'https://excalidraw.com',
+  whiteboard_: (import.meta.env.VITE_WHITEBOARD_EMBED_URL as string) || 'http://localhost:3005/app',
 }
 
 function getAppIframeUrl(toolName: string): string | null {

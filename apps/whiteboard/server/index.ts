@@ -1,13 +1,21 @@
 import express from 'express'
 import cors from 'cors'
+import path from 'path'
+import { fileURLToPath } from 'url'
 import { manifest } from './manifest.js'
 import { handleTool } from './tools.js'
+
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = path.dirname(__filename)
 
 const PORT = parseInt(process.env.PORT || '3005', 10)
 
 const app = express()
 app.use(cors())
 app.use(express.json())
+
+// Serve Excalidraw client
+app.use('/app', express.static(path.join(__dirname, '..', 'client', 'dist')))
 
 // Manifest endpoint
 app.get('/api/manifest', (_req, res) => {
@@ -31,4 +39,5 @@ app.post('/api/tools/:toolName', (req, res) => {
 app.listen(PORT, () => {
   console.log(`Whiteboard app listening on http://localhost:${PORT}`)
   console.log(`  Manifest: http://localhost:${PORT}/api/manifest`)
+  console.log(`  Iframe:   http://localhost:${PORT}/app`)
 })
