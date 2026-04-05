@@ -34,6 +34,13 @@ beforeAll(async () => {
      VALUES ('math-practice', 'Math Practice', 'Math practice app', 'education', 'http://localhost:3004', '{}')
      ON CONFLICT (id) DO NOTHING`
   )
+
+  // Ensure whiteboard app exists
+  await query(
+    `INSERT INTO apps (id, name, description, category, base_url, manifest)
+     VALUES ('whiteboard', 'Whiteboard', 'Whiteboard app', 'tools', 'http://localhost:3005', '{}')
+     ON CONFLICT (id) DO NOTHING`
+  )
 })
 
 afterAll(async () => {
@@ -75,6 +82,17 @@ describe('getOrCreateSession', () => {
     for (const row of result.rows) {
       expect(row.status).toBe('completed')
     }
+  })
+
+  it('reactivates a completed session for the same app', async () => {
+    // Create a session, complete it, then call getOrCreateSession again
+    const s1 = await getOrCreateSession('whiteboard', conversationId, userId)
+    await updateSession(s1.id, { elements: [{ id: '1' }] }, 'completed', 'Closed by user')
+
+    const s2 = await getOrCreateSession('whiteboard', conversationId, userId)
+    expect(s2.id).toBe(s1.id)
+    expect(s2.status).toBe('active')
+    expect((s2.state as any).elements).toEqual([{ id: '1' }])
   })
 })
 
