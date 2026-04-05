@@ -44,6 +44,8 @@ export function useAppPanel({
 }: UseAppPanelParams) {
   // Track latest app state for close-button summary
   const latestAppStateRef = useRef<Record<string, unknown>>({})
+  // Prevent handleGameOver from scheduling duplicate closeApp timeouts
+  const gameOverFiredRef = useRef<string | null>(null)
 
   // Update active panel whenever messages change with new iframes
   useEffect(() => {
@@ -92,6 +94,13 @@ export function useAppPanel({
     setActivePanel(null)
     setSecondaryPanel(null)
   }, [messages])
+
+  // Reset gameOver guard when a new session starts
+  useEffect(() => {
+    if (activePanel && gameOverFiredRef.current !== activePanel.appSessionId) {
+      gameOverFiredRef.current = null
+    }
+  }, [activePanel?.appSessionId])
 
   // Auto-collapse sidebar when an app panel opens, re-open when all panels close
   useEffect(() => {
@@ -321,6 +330,11 @@ export function useAppPanel({
 
   const handleGameOver = useCallback(
     (result: { won: boolean; result?: string }) => {
+      // Guard: only fire once per session
+      const sessionId = activePanel?.appSessionId
+      if (!sessionId || gameOverFiredRef.current === sessionId) return
+      gameOverFiredRef.current = sessionId
+
       if (result.won) {
         fireConfetti()
         setCharacterMode('celebrating')

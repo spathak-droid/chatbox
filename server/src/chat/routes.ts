@@ -233,15 +233,18 @@ chatRoutes.post('/conversations/:id/close-app', requireAuth, async (req, res, ne
     const conversationId = req.params.id
     const userId = req.user!.id
 
-    // Mark the session as completed
+    // Mark the session as completed — but only if still active (idempotent)
     const sessions = await getSessionsForConversation(conversationId)
     const session = sessions.find((s: any) => s.appId === appId && s.status === 'active')
-    if (session) {
-      await query(
-        `UPDATE app_sessions SET status = 'completed', summary = 'Closed by user', updated_at = NOW() WHERE id = $1`,
-        [session.id]
-      )
+    if (!session) {
+      // Already closed — don't generate a duplicate farewell
+      log.info('Close app skipped (already closed)', { appId })
+      return res.json({ ok: true, farewell: '' })
     }
+    await query(
+      `UPDATE app_sessions SET status = 'completed', summary = 'Closed by user', updated_at = NOW() WHERE id = $1`,
+      [session.id]
+    )
 
     // Build sanitized state summary
     const sanitizedState = sanitizeStateForLLM(appId, appState || {})
