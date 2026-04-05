@@ -74,6 +74,9 @@ export async function streamChatWithTools(
   })
 
   const MAX_TOOL_ROUNDS = 5
+  const LLM_TIMEOUT_MS = 30_000 // 30s per LLM call
+  const requestStart = Date.now()
+  const OVERALL_TIMEOUT_MS = 90_000 // 90s total for the entire request
   let currentMessages = [...messages]
 
   // Track tool calls and results for DB persistence
@@ -81,6 +84,13 @@ export async function streamChatWithTools(
   let fullResponseText = ''
 
   for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
+    // Check overall timeout
+    if (Date.now() - requestStart > OVERALL_TIMEOUT_MS) {
+      log.warn('Overall request timeout', { round, elapsed: Date.now() - requestStart })
+      res.write(`data: ${JSON.stringify({ type: 'text', content: "\n\nSorry, that took too long! Could you try again?" })}\n\n`)
+      break
+    }
+
     // ============ PASS 1: Non-streaming call to get tool proposals ============
     const pass1Response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
       method: 'POST',
@@ -89,6 +99,7 @@ export async function streamChatWithTools(
         'Content-Type': 'application/json',
         'HTTP-Referer': 'https://chatbridge.app',
       },
+      signal: AbortSignal.timeout(LLM_TIMEOUT_MS),
       body: JSON.stringify({
         model: config.openrouterModel,
         messages: currentMessages,

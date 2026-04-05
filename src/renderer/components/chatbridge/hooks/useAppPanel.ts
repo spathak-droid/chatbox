@@ -346,16 +346,16 @@ export function useAppPanel({
 
   const handleGameOver = useCallback(
     (result: { won: boolean; result?: string }) => {
+      console.log('[handleGameOver]', { won: result.won, result: result.result, activePanel: activePanel?.appId, sessionId: activePanel?.appSessionId, alreadyFired: gameOverFiredRef.current })
       // Guard: only fire once per session
       const sessionId = activePanel?.appSessionId
       if (!sessionId || gameOverFiredRef.current === sessionId) return
       gameOverFiredRef.current = sessionId
 
-      if (result.won) {
-        fireConfetti()
-        setCharacterMode('celebrating')
-        setTimeout(() => setCharacterMode('idle'), 3000)
-      }
+      // Always celebrate — completing any activity is an achievement for kids
+      fireConfetti()
+      setCharacterMode('celebrating')
+      setTimeout(() => setCharacterMode('idle'), 3000)
       // Close the panel after a delay so the user sees the final state
       setTimeout(() => {
         if (activePanel) {
