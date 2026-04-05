@@ -125,33 +125,28 @@
   #moves-panel span { margin: 0 2px; }
   #moves-panel .move-num { color: #666; }
 
-  #difficulty-select {
+  #difficulty-bar {
     display: flex;
-    flex-direction: column;
     align-items: center;
-    gap: 12px;
-    padding: 32px 16px;
+    gap: 8px;
+    margin-top: 8px;
+    width: min(88vw, 380px);
+    justify-content: center;
   }
-  #difficulty-select h2 {
-    font-size: 18px;
-    font-weight: 700;
-    color: #fff;
-  }
-  #difficulty-select p {
-    font-size: 13px;
-    color: #aaa;
-  }
-  .diff-buttons {
-    display: flex;
-    gap: 10px;
+  #difficulty-bar .diff-label {
+    font-size: 11px;
+    color: #888;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
   }
   .diff-btn {
-    padding: 10px 20px;
+    padding: 5px 14px;
     border: 2px solid #555;
-    border-radius: 8px;
+    border-radius: 6px;
     background: #3a3835;
     color: #e0e0e0;
-    font-size: 14px;
+    font-size: 12px;
     font-weight: 600;
     cursor: pointer;
     transition: all 0.15s;
@@ -166,6 +161,7 @@
   .diff-btn.medium:hover { background: #ffa72622; }
   .diff-btn.hard { border-color: #ef5350; color: #ef5350; }
   .diff-btn.hard:hover { background: #ef535022; }
+  .diff-btn.active { box-shadow: 0 0 0 2px rgba(255,255,255,0.3); }
   #difficulty-badge {
     font-size: 11px;
     padding: 2px 8px;
@@ -179,18 +175,15 @@
 </style>
 </head>
 <body>
-<div id="difficulty-select">
-  <h2>Choose Difficulty</h2>
-  <p>Select how strong the AI opponent should be</p>
-  <div class="diff-buttons">
-    <button class="diff-btn easy" onclick="startWithDifficulty('easy')">Easy</button>
-    <button class="diff-btn medium" onclick="startWithDifficulty('medium')">Medium</button>
-    <button class="diff-btn hard" onclick="startWithDifficulty('hard')">Hard</button>
-  </div>
-</div>
-<div id="game-area" style="display:none;">
+<div id="game-area">
   <div id="status">Your turn — tap a piece to move</div>
   <div id="board"></div>
+  <div id="difficulty-bar">
+    <span class="diff-label">AI:</span>
+    <button class="diff-btn easy" onclick="changeDifficulty('easy')">Easy</button>
+    <button class="diff-btn medium" onclick="changeDifficulty('medium')">Medium</button>
+    <button class="diff-btn hard" onclick="changeDifficulty('hard')">Hard</button>
+  </div>
   <div id="moves-panel"></div>
 </div>
 
@@ -205,12 +198,9 @@ let sending = false
 let chosenDifficulty = null
 
 // ============ DIFFICULTY SELECTION ============
-async function startWithDifficulty(difficulty) {
+async function changeDifficulty(difficulty) {
   chosenDifficulty = difficulty
-  document.getElementById('difficulty-select').style.display = 'none'
-  document.getElementById('game-area').style.display = 'flex'
-  document.getElementById('game-area').style.flexDirection = 'column'
-  document.getElementById('game-area').style.alignItems = 'center'
+  updateDifficultyButtons()
 
   try {
     const res = await fetch('/api/tools/chess_start_game', {
@@ -235,6 +225,12 @@ async function startWithDifficulty(difficulty) {
     showError('Failed to start game')
   }
   sendResize()
+}
+
+function updateDifficultyButtons() {
+  document.querySelectorAll('#difficulty-bar .diff-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.textContent.toLowerCase() === chosenDifficulty)
+  })
 }
 
 const PIECES = {
@@ -309,21 +305,21 @@ function render() {
     return
   }
 
-  // Show game area, hide difficulty select
-  document.getElementById('difficulty-select').style.display = 'none'
+  // Show game area
   document.getElementById('game-area').style.display = 'flex'
   document.getElementById('game-area').style.flexDirection = 'column'
   document.getElementById('game-area').style.alignItems = 'center'
 
   const { fen, moves, playerColor, gameOver, result } = gameState
-  const diff = gameState.difficulty || chosenDifficulty || 'medium'
+  const diff = gameState.difficulty || chosenDifficulty || 'easy'
   const board = parseFen(fen)
   const flipped = playerColor === 'black'
   const myTurn = isPlayerTurn(fen, playerColor)
 
-  const badge = `<span id="difficulty-badge" class="${diff}">${diff.toUpperCase()}</span>`
+  updateDifficultyButtons()
+
   if (gameOver) {
-    statusEl.innerHTML = (result || 'Game Over') + badge
+    statusEl.innerHTML = (result || 'Game Over')
     statusEl.className = ''
   } else if (sending) {
     statusEl.innerHTML = 'Making move...' + badge
@@ -569,19 +565,10 @@ window.addEventListener('message', (event) => {
     case 'host.init': {
       const state = msg.state?.chess || (msg.state?.fen ? msg.state : null)
       if (state) {
-        // Fresh game with no moves and no difficulty chosen — show difficulty picker
-        if ((!state.moves || state.moves.length === 0) && !state.difficulty) {
-          // Store the player color from the tool call, show picker
-          gameState = null
-          chosenDifficulty = null
-          document.getElementById('difficulty-select').style.display = 'flex'
-          document.getElementById('game-area').style.display = 'none'
-          sendResize()
-        } else {
-          gameState = state
-          chosenDifficulty = state.difficulty || 'medium'
-          render()
-        }
+        gameState = state
+        chosenDifficulty = state.difficulty || 'easy'
+        updateDifficultyButtons()
+        render()
       }
       break
     }
