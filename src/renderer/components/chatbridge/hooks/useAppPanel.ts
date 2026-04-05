@@ -118,9 +118,12 @@ export function useAppPanel({
 
   const handleToolRequest = useCallback(
     (request: { tool: string; args: Record<string, unknown> }) => {
-      // Send tool request as a chat message directly
-      const toolMessage = `[Tool request: ${request.tool}] ${JSON.stringify(request.args)}`
-      sendMessage(toolMessage)
+      // Send tool request as a hidden message (user doesn't need to see the raw JSON)
+      const friendlyMessages: Record<string, string> = {
+        chess_start_game: `Start a new chess game${request.args.difficulty ? ` on ${request.args.difficulty}` : ''}`,
+      }
+      const displayText = friendlyMessages[request.tool] || `Use ${request.tool.replace(/_/g, ' ')}`
+      sendMessage(displayText)
     },
     [sendMessage]
   )
@@ -308,8 +311,13 @@ export function useAppPanel({
 
       // 3. Fire async LLM farewell via /close-app endpoint — but only if the LLM
       //    didn't already call an end tool (which means it already streamed a farewell)
-      const llmAlreadyClosed = messages.some(
-        (m) => m.toolCalls?.some((tc) => /end_game|end_session|finish|_close/.test(tc.name))
+      // Only check the last 3 messages for a close tool for THIS specific app
+      const appPrefix = panel.appId.replace(/-/g, '_').replace(/google_/, '')
+      const recentMessages = messages.slice(-3)
+      const llmAlreadyClosed = recentMessages.some(
+        (m) => m.toolCalls?.some((tc) =>
+          /end_game|end_session|finish|_close/.test(tc.name) && tc.name.includes(appPrefix)
+        )
       )
 
       if (!llmAlreadyClosed && conversationId) {
