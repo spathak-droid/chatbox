@@ -76,4 +76,85 @@ describe('buildAppContext', () => {
     expect(result.contextLine).toContain('CURRENTLY ACTIVE APP: chess')
     expect(result.contextLine).not.toContain('Previously closed: chess')
   })
+
+  // ========== CLOSE / REOPEN SCENARIOS ==========
+
+  describe('close and reopen (user manually closes panel)', () => {
+    it('completed session + same app intent → NO APP ACTIVE, must call start tool', () => {
+      // User closed whiteboard → session is completed → user says "open the whiteboard"
+      const sessions = [
+        { appId: 'whiteboard', status: 'completed', state: {}, summary: 'Closed by user' },
+      ]
+      const result = buildAppContext(sessions as any, 'open the whiteboard')
+      expect(result.activeAppId).toBeNull()
+      expect(result.contextLine).toContain('NO APP IS CURRENTLY ACTIVE')
+      expect(result.contextLine).toContain('Previously closed: whiteboard')
+      expect(result.contextLine).toContain('call its start tool')
+    })
+
+    it('completed session + same app intent without "open" → still works', () => {
+      // User closed math → session is completed → user says "let's practice math"
+      const sessions = [
+        { appId: 'math-practice', status: 'completed', state: {}, summary: 'Closed by user' },
+      ]
+      const result = buildAppContext(sessions as any, "let's practice math")
+      expect(result.activeAppId).toBeNull()
+      expect(result.contextLine).toContain('NO APP IS CURRENTLY ACTIVE')
+    })
+
+    it('active session + same app intent (race condition) → treats as NOT active so LLM calls tool', () => {
+      // Race condition: close hasn't reached DB yet, session still "active"
+      // User says "open the whiteboard" → should NOT say "currently active"
+      const sessions = [
+        { appId: 'whiteboard', status: 'active', state: { active: true }, summary: null },
+      ]
+      const result = buildAppContext(sessions as any, 'open the whiteboard')
+      // needsReopen should kick in
+      expect(result.activeAppId).toBeNull()
+      expect(result.contextLine).toContain('NO APP IS CURRENTLY ACTIVE')
+      expect(result.contextLine).toContain('user closed the panel')
+      expect(result.contextLine).toContain('MUST call the start tool')
+    })
+
+    it('active session + same app intent without "open" (race) → still reopens', () => {
+      // "let's play chess" while chess session is stale-active
+      const sessions = [
+        { appId: 'chess', status: 'active', state: { fen: 'abc' }, summary: null },
+      ]
+      const result = buildAppContext(sessions as any, "let's play chess")
+      expect(result.activeAppId).toBeNull()
+      expect(result.contextLine).toContain('NO APP IS CURRENTLY ACTIVE')
+    })
+
+    it('active session + different app intent → switching flow (not reopen)', () => {
+      // Chess is active, user wants math → normal switch, not reopen
+      const sessions = [
+        { appId: 'chess', status: 'active', state: {}, summary: null },
+      ]
+      const result = buildAppContext(sessions as any, "let's practice math")
+      expect(result.activeAppId).toBe('chess')
+      expect(result.contextLine).toContain('CURRENTLY ACTIVE APP: chess')
+      expect(result.contextLine).toContain('Switching from chess to math-practice')
+    })
+
+    it('active session + no intent → normal active state', () => {
+      // User says something generic while chess is active → keep active
+      const sessions = [
+        { appId: 'chess', status: 'active', state: { fen: 'abc' }, summary: null },
+      ]
+      const result = buildAppContext(sessions as any, 'what should i do next')
+      expect(result.activeAppId).toBe('chess')
+      expect(result.contextLine).toContain('CURRENTLY ACTIVE APP: chess')
+    })
+
+    it('completed whiteboard + chess intent → no reopen, just start chess', () => {
+      // Whiteboard was closed, user wants chess → don't try to reopen whiteboard
+      const sessions = [
+        { appId: 'whiteboard', status: 'completed', state: {}, summary: 'Closed by user' },
+      ]
+      const result = buildAppContext(sessions as any, "let's play chess")
+      expect(result.activeAppId).toBeNull()
+      expect(result.contextLine).toContain('NO APP IS CURRENTLY ACTIVE')
+    })
+  })
 })

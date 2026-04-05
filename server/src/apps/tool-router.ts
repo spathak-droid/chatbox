@@ -151,11 +151,13 @@ export async function routeToolCall(
     )
 
     if (result.data) {
-      const isEnd = toolName.includes('end') || toolName.includes('finish') || toolName.includes('stop')
+      const isEnd = toolName.includes('end') || toolName.includes('finish') || toolName.includes('stop') || toolName.includes('close')
+      const isStart = toolName.includes('start') || toolName.includes('open')
       const d = result.data as any
       const isCompleted = isEnd || d?.gameOver || d?.finished || d?.completed || d?.done
         || (result.status === 'ok' && result.summary?.toLowerCase().includes('completed'))
-      await updateSession(session.id, result.data, isCompleted ? 'completed' : 'active', result.summary)
+      // Start/open tools REPLACE state (fresh start); other tools MERGE
+      await updateSession(session.id, result.data, isCompleted ? 'completed' : 'active', result.summary, isStart)
     }
 
     result.appSessionId = session.id

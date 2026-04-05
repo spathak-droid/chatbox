@@ -8,7 +8,7 @@ interface SessionInfo {
 }
 
 /** Detect which app the user's message is referring to, if any */
-function detectIntentApp(lastUserMessage: string): string | null {
+export function detectIntentApp(lastUserMessage: string): string | null {
   const msg = lastUserMessage.toLowerCase()
   if (/chess|play a game|play$|let'?s play/.test(msg)) return 'chess'
   if (/math|practice|problems|addition|algebra|subtract|multipl|divid/.test(msg)) return 'math-practice'
@@ -49,17 +49,30 @@ export function buildAppContext(
   const intentApp = detectIntentApp(lastUserMessage)
   const isSwitching = activeSession && intentApp && activeSession.appId !== intentApp
 
+  // If the user expresses intent for an app that's already "active", the UI
+  // may have been closed manually (race condition with async close).
+  // Always let the LLM call the start tool — it's idempotent and will
+  // re-show the panel if it was dismissed.
+  const needsReopen = activeSession && intentApp === activeAppId
+
+  console.log('[buildAppContext]', { activeAppId, intentApp, needsReopen: !!needsReopen, sessions: relevantSessions.map(s => ({ appId: s.appId, status: s.status })) })
+
   // Explicit status header — the LLM must read this first
   const lines: string[] = []
-  if (activeAppId) {
+  if (activeAppId && !needsReopen) {
     lines.push(`=== CURRENTLY ACTIVE APP: ${activeAppId} ===`)
+  } else if (needsReopen) {
+    lines.push(`=== NO APP IS CURRENTLY ACTIVE. To start an app, call its start tool. ===`)
   } else {
     lines.push('=== NO APP IS CURRENTLY ACTIVE. To start an app, call its start tool. ===')
   }
 
   for (const s of relevantSessions) {
     if (s.status === 'active') {
-      if (isSwitching && s.appId === activeSession!.appId) {
+      if (needsReopen && s.appId === activeAppId) {
+        // User explicitly asked to reopen — treat as closed so LLM calls start tool
+        lines.push(`[Previously closed: ${s.appId} — user closed the panel. NOT running. You MUST call the start tool to reopen it.]`)
+      } else if (isSwitching && s.appId === activeSession!.appId) {
         lines.push(`[Switching from ${activeSession!.appId} to ${intentApp}. You MUST call the end tool for ${activeSession!.appId} first, then the start tool for ${intentApp}. Briefly discuss what happened in ${activeSession!.appId} before moving on.]`)
       } else {
         const state = s.state as Record<string, unknown> | null
@@ -74,5 +87,8 @@ export function buildAppContext(
     }
   }
 
-  return { activeAppId, contextLine: lines.join('\n') }
+  // When reopening, don't report an active app ID so tools get scoped correctly
+  const effectiveActiveAppId = needsReopen ? null : activeAppId
+
+  return { activeAppId: effectiveActiveAppId, contextLine: lines.join('\n') }
 }

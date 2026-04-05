@@ -20,6 +20,7 @@ chatRoutes.post('/send', rateLimiter, async (req, res, next) => {
       conversationId: z.string().uuid().optional(),
       message: z.string().min(1),
       timezone: z.string().optional(),
+      dismissedSessionIds: z.array(z.string()).optional(),
     }).parse(req.body)
 
     const userId = req.user!.id
@@ -31,6 +32,17 @@ chatRoutes.post('/send', rateLimiter, async (req, res, next) => {
         [userId]
       )
       conversationId = result.rows[0].id
+    }
+
+    // Mark any client-dismissed sessions as completed before processing
+    // This prevents race conditions where the close request hasn't arrived yet
+    if (body.dismissedSessionIds && body.dismissedSessionIds.length > 0) {
+      await query(
+        `UPDATE app_sessions SET status = 'completed', summary = COALESCE(summary, 'Closed by user'), updated_at = NOW()
+         WHERE conversation_id = $1 AND user_id = $2 AND status = 'active'
+         AND id = ANY($3::uuid[])`,
+        [conversationId, userId, body.dismissedSessionIds]
+      )
     }
 
     await query(
@@ -138,11 +150,15 @@ chatRoutes.post('/conversations/:id/sync-app-state', async (req, res, next) => {
     const session = sessions.find(s => s.appId === appId && s.status === 'active')
 
     if (session) {
-      const status = state.gameOver ? 'completed' : 'active'
-      const summary = state.gameOver ? String(state.result || 'Game ended') : undefined
+      const closedByUser = state._closedByUser === true
+      const status = (state.gameOver || closedByUser) ? 'completed' : 'active'
+      const summary = state.gameOver ? String(state.result || 'Game ended') : closedByUser ? 'Closed by user' : undefined
+      // Don't store internal flags in session state
+      const cleanState = { ...state }
+      delete cleanState._closedByUser
       await query(
-        `UPDATE app_sessions SET state = $1::jsonb, status = COALESCE($2, status), summary = COALESCE($3, summary), updated_at = NOW() WHERE id = $4`,
-        [JSON.stringify(state), status, summary || null, session.id]
+        `UPDATE app_sessions SET state = state || $1::jsonb, status = COALESCE($2, status), summary = COALESCE($3, summary), updated_at = NOW() WHERE id = $4`,
+        [JSON.stringify(cleanState), status, summary || null, session.id]
       )
     }
 
@@ -236,15 +252,14 @@ chatRoutes.post('/conversations/:id/close-app', requireAuth, async (req, res, ne
     // Mark the session as completed — but only if still active (idempotent)
     const sessions = await getSessionsForConversation(conversationId)
     const session = sessions.find((s: any) => s.appId === appId && s.status === 'active')
-    if (!session) {
-      // Already closed — don't generate a duplicate farewell
-      log.info('Close app skipped (already closed)', { appId })
-      return res.json({ ok: true, farewell: '' })
+    if (session) {
+      await query(
+        `UPDATE app_sessions SET status = 'completed', summary = 'Closed by user', updated_at = NOW() WHERE id = $1`,
+        [session.id]
+      )
+    } else {
+      log.info('Session already closed by sync', { appId })
     }
-    await query(
-      `UPDATE app_sessions SET status = 'completed', summary = 'Closed by user', updated_at = NOW() WHERE id = $1`,
-      [session.id]
-    )
 
     // Build sanitized state summary
     const sanitizedState = sanitizeStateForLLM(appId, appState || {})

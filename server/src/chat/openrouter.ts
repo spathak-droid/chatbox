@@ -11,7 +11,16 @@ import { StreamModerator, logModerationEvent } from '../security/moderation.js'
 import { langfuse } from '../lib/langfuse.js'
 import { persistAssistantMessage } from './message-persistence.js'
 import { buildSystemPrompt } from './system-prompt.js'
-import { buildAppContext } from './app-context.js'
+import { buildAppContext, detectIntentApp } from './app-context.js'
+
+// Map from app ID to its start tool name and default args
+const APP_START_TOOL: Record<string, { name: string; defaultArgs: Record<string, unknown> }> = {
+  'chess': { name: 'chess_start_game', defaultArgs: { playerColor: 'white' } },
+  'math-practice': { name: 'math_start_session', defaultArgs: { topic: 'addition', difficulty: 'easy' } },
+  'flashcards': { name: 'flashcards_start_deck', defaultArgs: {} },
+  'google-calendar': { name: 'calendar_start_connect', defaultArgs: {} },
+  'whiteboard': { name: 'whiteboard_open', defaultArgs: {} },
+}
 
 export async function streamChatWithTools(
   messages: ChatMessage[],
@@ -117,6 +126,31 @@ export async function streamChatWithTools(
     // ============ NO TOOL CALLS ============
     if (pass1ToolCalls.length === 0) {
       if (round === 0) {
+        // Auto-inject start tool if the LLM should have called it but didn't.
+        // This handles unreliable LLM tool-calling behavior.
+        const intentApp = detectIntentApp(lastUserMessage)
+        const startEntry = intentApp ? APP_START_TOOL[intentApp] : null
+        const shouldAutoStart = startEntry && !activeAppId
+        if (shouldAutoStart && scopedTools.some(t => t.function?.name === startEntry.name)) {
+          log.info('Auto-injecting start tool (LLM skipped it)', { tool: startEntry.name, intent: intentApp })
+          // Send the LLM text first
+          if (pass1Content) {
+            res.write(`data: ${JSON.stringify({ type: 'text', content: pass1Content })}\n\n`)
+            fullResponseText = pass1Content
+          }
+          // Inject the tool call
+          const autoToolCallId = `auto-${Date.now()}`
+          const autoArgs = startEntry.defaultArgs
+          res.write(`data: ${JSON.stringify({ type: 'tool_call', toolCallId: autoToolCallId, toolName: startEntry.name, args: autoArgs })}\n\n`)
+          const result = await routeToolCall(startEntry.name, autoArgs, { userId, conversationId, authToken })
+          res.write(`data: ${JSON.stringify({ type: 'tool_result', toolCallId: autoToolCallId, toolName: startEntry.name, result })}\n\n`)
+          executedToolCalls.push({ id: autoToolCallId, name: startEntry.name, args: JSON.stringify(autoArgs), result: JSON.stringify(result) })
+          await persistAssistantMessage(conversationId, fullResponseText, executedToolCalls)
+          res.write('data: [DONE]\n\n')
+          res.end()
+          return
+        }
+
         // First round, no tools — pure chat. Send Pass 1 text directly.
         if (pass1Content) {
           res.write(`data: ${JSON.stringify({ type: 'text', content: pass1Content })}\n\n`)
@@ -135,18 +169,63 @@ export async function streamChatWithTools(
     // LLMs can hallucinate tool names from conversation history even when
     // those tools aren't in the current tools array.
     const scopedToolNames = new Set(scopedTools.map(t => t.function?.name).filter(Boolean))
+    const blockedCloseTools: typeof pass1ToolCalls = []
     const validatedToolCalls = pass1ToolCalls.filter(tc => {
       if (scopedToolNames.has(tc.function.name)) return true
-      log.warn('Blocked hallucinated tool', { tool: tc.function.name })
+      // If the LLM tries to close/end a non-active app, don't block — return
+      // a silent success so the LLM can proceed to the next tool call
+      const name = tc.function.name
+      if (/end_game|end_session|finish|stop|_close/.test(name)) {
+        log.info('Auto-completing out-of-scope close tool', { tool: name })
+        blockedCloseTools.push(tc)
+        return false
+      }
+      log.warn('Blocked hallucinated tool', { tool: name })
       return false
     })
 
-    // If no tool calls after validation, send Pass 1 text and end
+    // For blocked close/end tools, inject fake success results so the LLM
+    // can continue with the next tool (e.g., starting a new app)
+    if (blockedCloseTools.length > 0) {
+      currentMessages.push({
+        role: 'assistant',
+        content: '',
+        tool_calls: blockedCloseTools.map(tc => ({
+          id: tc.id,
+          type: 'function' as const,
+          function: tc.function,
+        })),
+      })
+      for (const tc of blockedCloseTools) {
+        currentMessages.push({
+          role: 'tool',
+          content: `<tool_result app="${tc.function.name}">{"status":"ok","data":{"closed":true},"summary":"App already closed."}</tool_result>`,
+          tool_call_id: tc.id,
+        })
+      }
+    }
+
+    // If no valid tool calls after filtering, auto-inject start tool if needed
     if (validatedToolCalls.length === 0) {
       if (pass1Content) {
         res.write(`data: ${JSON.stringify({ type: 'text', content: pass1Content })}\n\n`)
         fullResponseText = pass1Content
       }
+
+      // Auto-inject start tool if LLM only called out-of-scope close tools
+      // but should have also called a start tool for the intended app
+      const intentApp = detectIntentApp(lastUserMessage)
+      const startEntry = intentApp ? APP_START_TOOL[intentApp] : null
+      if (startEntry && !activeAppId && scopedTools.some(t => t.function?.name === startEntry.name)) {
+        log.info('Auto-injecting start tool (after filtered tools)', { tool: startEntry.name, intent: intentApp })
+        const autoToolCallId = `auto-${Date.now()}`
+        const autoArgs = startEntry.defaultArgs
+        res.write(`data: ${JSON.stringify({ type: 'tool_call', toolCallId: autoToolCallId, toolName: startEntry.name, args: autoArgs })}\n\n`)
+        const result = await routeToolCall(startEntry.name, autoArgs, { userId, conversationId, authToken })
+        res.write(`data: ${JSON.stringify({ type: 'tool_result', toolCallId: autoToolCallId, toolName: startEntry.name, result })}\n\n`)
+        executedToolCalls.push({ id: autoToolCallId, name: startEntry.name, args: JSON.stringify(autoArgs), result: JSON.stringify(result) })
+      }
+
       await persistAssistantMessage(conversationId, fullResponseText, executedToolCalls)
       res.write('data: [DONE]\n\n')
       res.end()

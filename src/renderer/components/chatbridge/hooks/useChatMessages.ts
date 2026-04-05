@@ -250,6 +250,7 @@ export function useChatMessages({
           conversationId: conversationId || undefined,
           message: text,
           timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+          dismissedSessionIds: Array.from(dismissedSessionsRef.current),
         }),
       })
 
@@ -331,7 +332,7 @@ export function useChatMessages({
                 setToolExecuting(false)
                 const toolName = event.toolName
                 // Don't create iframe entries for end/finish/cleanup tools
-                const isEndTool = /end_game|finish|stop|end_session/.test(toolName)
+                const isEndTool = /end_game|finish|stop|end_session|_close/.test(toolName)
 
                 // When an end tool fires, close the sidebar and add a close note
                 if (isEndTool) {
@@ -352,17 +353,25 @@ export function useChatMessages({
                 const iframeUrl = isEndTool ? null : getAppIframeUrl(toolName)
                 const appId = getAppIdFromToolName(toolName)
 
+                console.log('[tool_result]', { toolName, isEndTool, iframeUrl, appId, resultStatus: event.result?.status, appSessionId: event.result?.appSessionId })
+
                 if (iframeUrl && appId && event.result && event.result.status !== 'error') {
                   const appSessionId = event.result.appSessionId || event.result.sessionId || `session-${Date.now()}`
                   const sessionState = event.result.data || event.result.state || event.result || {}
 
-                  // Auto-close old panel when a different app starts (LLM didn't call end_session)
+                  // Clear ALL dismissed sessions for this app so reopened apps show
+                  // This is the definitive fix — getOrCreateSession reuses the same
+                  // session ID, so we must clear it from dismissed before showing
+                  dismissedSessionsRef.current.delete(appSessionId)
+
+                  // Auto-close old panel when a different app starts
                   setActivePanel((prev) => {
                     if (prev && prev.appId !== appId) {
                       dismissedSessionsRef.current.add(prev.appSessionId)
-                      return null
                     }
-                    return prev
+                    // ALWAYS set the new panel — this bypasses the useEffect
+                    // which can race with dismissedSessionsRef
+                    return { appId, iframeUrl, sessionState, appSessionId }
                   })
                   setSecondaryPanel(null)
 

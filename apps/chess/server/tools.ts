@@ -28,7 +28,7 @@ export function handleTool(
           moves: state.moves,
           playerColor: state.playerColor,
           gameOver: state.gameOver,
-          ...(state.difficulty ? { difficulty: state.difficulty } : {}),
+          difficulty: state.difficulty || null,
         },
         summary: `New chess game started. You are playing as ${playerColor}${difficulty ? ` on ${difficulty} difficulty` : ''}. FEN: ${state.fen}`,
       }

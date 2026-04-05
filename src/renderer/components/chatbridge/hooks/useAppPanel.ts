@@ -49,6 +49,7 @@ export function useAppPanel({
 
   // Update active panel whenever messages change with new iframes
   useEffect(() => {
+    console.log('[useAppPanel] Scanning messages for iframes, count:', messages.length, 'dismissed:', Array.from(dismissedSessionsRef.current))
     // Scan from newest message backward to find the latest active iframe
     for (let i = messages.length - 1; i >= 0; i--) {
       const msg = messages[i]
@@ -58,13 +59,17 @@ export function useAppPanel({
         const latest = iframes[iframes.length - 1]
         const state = latest.sessionState as Record<string, unknown>
 
+        console.log('[useAppPanel] Found iframe at msg', i, { appId: latest.appId, sessionId: latest.appSessionId, gameOver: state?.gameOver, isDismissed: dismissedSessionsRef.current.has(latest.appSessionId) })
+
         // If the session is finished/over, skip it
         if (state?.gameOver || state?.finished) {
+          console.log('[useAppPanel] Skipping - gameOver/finished')
           continue
         }
 
         // Don't re-open a session the user manually closed
         if (dismissedSessionsRef.current.has(latest.appSessionId)) {
+          console.log('[useAppPanel] Skipping - dismissed')
           continue
         }
 
@@ -290,10 +295,21 @@ export function useAppPanel({
         },
       ])
 
+      // 2b. Immediately mark session as completed in DB (fast, no farewell generation)
+      //     This prevents race conditions where the user sends a new message before
+      //     the slower /close-app request completes
+      if (conversationId) {
+        fetch(`${API_BASE}/chat/conversations/${conversationId}/sync-app-state`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ appId: panel.appId, state: { _closedByUser: true } }),
+        }).catch(() => {})
+      }
+
       // 3. Fire async LLM farewell via /close-app endpoint — but only if the LLM
       //    didn't already call an end tool (which means it already streamed a farewell)
       const llmAlreadyClosed = messages.some(
-        (m) => m.toolCalls?.some((tc) => /end_game|end_session|finish/.test(tc.name))
+        (m) => m.toolCalls?.some((tc) => /end_game|end_session|finish|_close/.test(tc.name))
       )
 
       if (!llmAlreadyClosed && conversationId) {

@@ -19,6 +19,8 @@ export function manifestToToolSchemas(manifest: AppManifest) {
               type: p.type,
               description: p.description,
               ...(p.enum ? { enum: p.enum } : {}),
+              // Google's API requires 'items' for array types
+              ...(p.type === 'array' ? { items: { type: 'object' as const } } : {}),
             },
           ])
         ),

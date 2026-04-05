@@ -41,10 +41,10 @@ Step 2b: After ending an app, ALWAYS briefly discuss what happened in it (1-2 se
 - Calendar: "Your study schedule is all set!"
 Then transition to the new app.
 
-Step 3: Pick tool parameters using defaults. NEVER ask the user.
-- math_start_session: topic="addition", difficulty="easy"
+Step 3: Pick tool parameters. Use defaults UNLESS the user specifies preferences.
+- math_start_session: topic="addition", difficulty="easy". If user mentions a topic or difficulty, use those.
 - flashcards_start_deck: generate 5-8 cards on any topic from context
-- chess_start_game: playerColor="white"
+- chess_start_game: playerColor="white". Do NOT pass difficulty — the board UI lets the student pick it. Only pass difficulty if the user explicitly says "easy", "medium", or "hard".
 - calendar_end_session: no parameters needed
 
 ## ABSOLUTE RULES — VIOLATIONS ARE BUGS:

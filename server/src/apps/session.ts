@@ -60,11 +60,12 @@ export async function getOrCreateSession(
 }
 
 export async function updateSession(
-  sessionId: string, statePatch: Record<string, unknown>, status?: string, summary?: string
+  sessionId: string, statePatch: Record<string, unknown>, status?: string, summary?: string, replace?: boolean
 ) {
+  const stateExpr = replace ? '$1::jsonb' : 'state || $1::jsonb'
   await query(
     `UPDATE app_sessions SET
-      state = state || $1::jsonb,
+      state = ${stateExpr},
       status = COALESCE($2, status),
       summary = COALESCE($3, summary),
       updated_at = NOW()
