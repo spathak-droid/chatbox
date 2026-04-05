@@ -12,7 +12,7 @@ export const config = {
   databaseUrl: process.env.DATABASE_URL || 'postgresql://localhost:5432/chatbridge',
   jwtSecret: process.env.JWT_SECRET || 'dev-secret-only-do-not-use-in-prod',
   openrouterApiKey: process.env.OPENROUTER_API_KEY || '',
-  openrouterModel: process.env.OPENROUTER_MODEL || 'anthropic/claude-sonnet-4',
+  openrouterModel: process.env.OPENROUTER_MODEL || 'google/gemini-3-flash-preview',
 
   corsOrigin: process.env.CORS_ORIGIN || 'http://localhost:1212',
   googleClientId: process.env.GOOGLE_CLIENT_ID || '',

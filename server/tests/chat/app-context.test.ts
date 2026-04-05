@@ -2,9 +2,9 @@ import { describe, it, expect } from 'vitest'
 import { buildAppContext } from '../../src/chat/app-context.js'
 
 describe('buildAppContext', () => {
-  it('returns null context for empty sessions', () => {
+  it('returns no-app-active context for empty sessions', () => {
     const result = buildAppContext([], 'play chess')
-    expect(result.contextLine).toBeNull()
+    expect(result.contextLine).toContain('NO APP IS CURRENTLY ACTIVE')
     expect(result.activeAppId).toBeNull()
   })
 
@@ -14,6 +14,7 @@ describe('buildAppContext', () => {
     ]
     const result = buildAppContext(sessions as any, 'whats the best move')
     expect(result.activeAppId).toBe('chess')
+    expect(result.contextLine).toContain('CURRENTLY ACTIVE APP: chess')
     expect(result.contextLine).toContain('[Active app: chess')
   })
 
@@ -25,13 +26,15 @@ describe('buildAppContext', () => {
     expect(result.contextLine).toContain('Switching from chess to flashcards')
   })
 
-  it('returns completed app context', () => {
+  it('returns completed app context with Previously closed label', () => {
     const sessions = [
       { appId: 'chess', status: 'completed', state: {}, summary: 'Game ended in checkmate' },
     ]
     const result = buildAppContext(sessions as any, 'hello')
-    expect(result.contextLine).toContain('Completed app: chess')
+    expect(result.contextLine).toContain('NO APP IS CURRENTLY ACTIVE')
+    expect(result.contextLine).toContain('Previously closed: chess')
     expect(result.contextLine).toContain('Game ended in checkmate')
+    expect(result.contextLine).toContain('NOT running')
   })
 
   it('detects gameOver in active session', () => {
@@ -48,5 +51,29 @@ describe('buildAppContext', () => {
     ]
     const result = buildAppContext(sessions as any, 'hello')
     expect(result.activeAppId).toBeNull()
+  })
+
+  it('de-duplicates sessions keeping only the latest per app', () => {
+    const sessions = [
+      { appId: 'chess', status: 'completed', state: {}, summary: 'First game' },
+      { appId: 'chess', status: 'completed', state: {}, summary: 'Second game' },
+      { appId: 'chess', status: 'completed', state: {}, summary: 'Third game' },
+    ]
+    const result = buildAppContext(sessions as any, 'hello')
+    // Should only mention chess once, with the latest summary
+    const chessMatches = result.contextLine.match(/Previously closed: chess/g)
+    expect(chessMatches).toHaveLength(1)
+    expect(result.contextLine).toContain('Third game')
+  })
+
+  it('prefers active session over completed when de-duplicating', () => {
+    const sessions = [
+      { appId: 'chess', status: 'completed', state: {}, summary: 'Old game' },
+      { appId: 'chess', status: 'active', state: { fen: 'abc' }, summary: null },
+    ]
+    const result = buildAppContext(sessions as any, 'whats the best move')
+    expect(result.activeAppId).toBe('chess')
+    expect(result.contextLine).toContain('CURRENTLY ACTIVE APP: chess')
+    expect(result.contextLine).not.toContain('Previously closed: chess')
   })
 })
