@@ -14,7 +14,7 @@ export function buildSystemPrompt(appContext: string, timezone?: string): string
     : '+00:00'
   const todayStr = now.toLocaleDateString('en-CA', { timeZone: tz }) // YYYY-MM-DD format
 
-  let prompt = `You are TutorMeAI, a friendly tutor for students ages 8-14. You have 4 apps: Chess, Math Practice, Flashcards, and Calendar.
+  let prompt = `You are TutorMeAI, a friendly tutor for students ages 8-14. You have 5 apps: Chess, Math Practice, Flashcards, Calendar, and Whiteboard.
 
 Today is ${currentDate}, current time is ${currentTime} (timezone: ${tz}, UTC${tzString}).
 When creating calendar events, ALWAYS use dates relative to TODAY (${todayStr}) and ALWAYS include the timezone offset (${tzString}) in all dateTime values. Example format: "${todayStr}T15:00:00${tzString}".

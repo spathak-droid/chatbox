@@ -14,6 +14,7 @@ function detectIntentApp(lastUserMessage: string): string | null {
   if (/math|practice|problems|addition|algebra|subtract|multipl|divid/.test(msg)) return 'math-practice'
   if (/flash|study|quiz|review|learn about/.test(msg)) return 'flashcards'
   if (/calendar|schedule|event|study block|study plan|delete.*event|add.*event|plan.*week/.test(msg)) return 'google-calendar'
+  if (/whiteboard|draw|sketch|diagram/.test(msg)) return 'whiteboard'
   return null
 }
 

@@ -68,6 +68,11 @@ export function sanitizeStateForLLM(appId: string, state: Record<string, unknown
       if (clean.coins !== undefined) parts.push(`Coins: ${clean.coins}`)
       return parts.length > 0 ? parts.join('. ') : 'Mario game in progress.'
     }
+    case 'whiteboard': {
+      const parts: string[] = []
+      if (Array.isArray(clean.elements)) parts.push(`${clean.elements.length} elements on canvas`)
+      return parts.length > 0 ? parts.join('. ') : 'Whiteboard is open.'
+    }
     default:
       return JSON.stringify(clean).slice(0, 500)
   }

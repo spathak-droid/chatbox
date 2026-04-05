@@ -145,6 +145,26 @@ describe('sanitizeStateForLLM', () => {
     expect(result).toBe('Chess game in progress.')
   })
 
+  it('formats whiteboard state with element count', () => {
+    const state = {
+      elements: [
+        { type: 'rectangle', x: 0, y: 0 },
+        { type: 'text', text: 'Hello' },
+        { type: 'arrow', x: 10, y: 20 },
+      ],
+      appState: { viewBackgroundColor: '#ffffff' },
+    }
+    const result = sanitizeStateForLLM('whiteboard', state)
+    expect(result).toContain('3 elements on canvas')
+    expect(result).not.toContain('rectangle')
+    expect(result).not.toContain('#ffffff')
+  })
+
+  it('returns default message for empty whiteboard', () => {
+    const result = sanitizeStateForLLM('whiteboard', {})
+    expect(result).toBe('Whiteboard is open.')
+  })
+
   it('truncates unknown app state to 500 chars', () => {
     const longValue = 'a'.repeat(1000)
     const result = sanitizeStateForLLM('unknown-app', { data: longValue })
