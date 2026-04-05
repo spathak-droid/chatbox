@@ -198,33 +198,15 @@ let sending = false
 let chosenDifficulty = null
 
 // ============ DIFFICULTY SELECTION ============
-async function changeDifficulty(difficulty) {
+function changeDifficulty(difficulty) {
   chosenDifficulty = difficulty
   updateDifficultyButtons()
-
-  try {
-    const res = await fetch('/api/tools/chess_start_game', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ args: { playerColor: 'white', difficulty }, sessionState: {} }),
-    })
-    const result = await res.json()
-    if (result.data) {
-      gameState = {
-        fen: result.data.fen,
-        moves: result.data.moves || [],
-        playerColor: result.data.playerColor || 'white',
-        gameOver: result.data.gameOver || false,
-        result: result.data.result,
-        difficulty: result.data.difficulty || difficulty,
-      }
-      render()
-      notifyParent()
-    }
-  } catch (err) {
-    showError('Failed to start game')
-  }
-  sendResize()
+  // Ask the parent to restart the game with the new difficulty
+  sendToHost({
+    type: 'app.tool_request',
+    toolName: 'chess_start_game',
+    args: { playerColor: gameState?.playerColor || 'white', difficulty },
+  })
 }
 
 function updateDifficultyButtons() {
